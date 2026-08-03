@@ -1,0 +1,11 @@
+# Python environments (recreate with: python3 -m venv .venv && pip install trimesh manifold3d numpy scipy shapely matplotlib pillow opencv-python-headless scikit-image)
+.venv/
+.venv-mesh/
+
+# local-only Claude Code permissions
+.claude/settings.local.json
+
+# OS / Python noise
+.DS_Store
+__pycache__/
+*.pyc

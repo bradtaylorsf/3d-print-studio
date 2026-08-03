@@ -1,0 +1,64 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>3D Print Studio</title>
+<link rel="stylesheet" href="/static/style.css">
+<script type="importmap">
+{ "imports": { "three": "/static/three/three.module.min.js" } }
+</script>
+</head>
+<body>
+<header id="topbar">
+  <span id="logo">◧ studio</span>
+  <select id="project-select" title="Project"></select>
+  <button id="new-project-btn" title="Create a new project folder">+ new</button>
+  <button id="url-btn" title="Import an image or STL from a public URL into this project">🔗 url</button>
+  <div class="group" id="view-buttons">
+    <button data-view="front" title="Front (−Y)">F</button>
+    <button data-view="back" title="Back (+Y)">B</button>
+    <button data-view="left" title="Left (−X)">L</button>
+    <button data-view="right" title="Right (+X)">R</button>
+    <button data-view="top" title="Top (+Z)">T</button>
+    <button data-view="iso" title="Isometric">ISO</button>
+    <button id="fit-btn" title="Re-center the camera on the model (or double-click the canvas)">⌖ FIT</button>
+  </div>
+  <div class="group">
+    <label class="chk"><input type="checkbox" id="envelope-toggle"> 295³</label>
+    <select id="clip-axis" title="Clip plane axis">
+      <option value="">no clip</option>
+      <option value="x">clip X</option>
+      <option value="y">clip Y</option>
+      <option value="z">clip Z</option>
+    </select>
+    <input type="range" id="clip-pos" min="0" max="300" value="150" step="1" disabled>
+  </div>
+  <button id="capture-btn" title="Save a screenshot into the project's refs/ folder">📸 capture</button>
+  <button id="slice-btn" title="Open the displayed model in Creality Print">🖨 slice</button>
+  <span id="reload-dot" title="watching for changes">●</span>
+</header>
+
+<main id="layout">
+  <div id="viewport"><canvas id="canvas"></canvas>
+    <div id="drop-hint">drop images (→ refs) or STL/3MF files (→ source) anywhere</div>
+    <div id="toast"></div>
+    <div id="legend">drag&thinsp;=&thinsp;orbit &nbsp;·&nbsp; shift-drag / right-drag / arrows&thinsp;=&thinsp;pan &nbsp;·&nbsp; scroll&thinsp;=&thinsp;zoom &nbsp;·&nbsp; double-click&thinsp;=&thinsp;re-center</div>
+  </div>
+  <img id="ref-viewer" alt="reference" hidden>
+</main>
+
+<aside id="sidebar">
+  <section id="stats">
+    <h3>model</h3>
+    <div id="stats-body">no model</div>
+  </section>
+  <section id="refs">
+    <h3>refs <span class="hint">(drag images onto the page)</span></h3>
+    <div id="refs-strip"></div>
+  </section>
+</aside>
+
+<script type="module" src="/static/app.js"></script>
+</body>
+</html>
