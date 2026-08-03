@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#2b6cb8"/>
+      <stop offset="1" stop-color="#173a63"/>
+    </linearGradient>
+    <linearGradient id="ring" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#f4f7fa"/>
+      <stop offset="1" stop-color="#c3d3e4"/>
+    </linearGradient>
+  </defs>
+
+  <!-- macOS-style rounded square -->
+  <rect x="64" y="64" width="896" height="896" rx="200" fill="url(#bg)"/>
+
+  <!-- build-plate grid -->
+  <g stroke="#ffffff" stroke-opacity=".14" stroke-width="6">
+    <line x1="192" y1="812" x2="832" y2="812"/>
+    <line x1="232" y1="748" x2="792" y2="748"/>
+    <path d="M312 812 L392 684 M512 812 L512 684 M712 812 L632 684"/>
+  </g>
+
+  <!-- extruder nozzle -->
+  <g fill="#eef3f8">
+    <rect x="452" y="150" width="120" height="70" rx="16"/>
+    <path d="M452 232 h120 l-34 74 h-52 z"/>
+  </g>
+  <!-- filament drop -->
+  <rect x="500" y="318" width="24" height="96" rx="12" fill="#ffd166"/>
+
+  <!-- half-printed ring, built up in layers -->
+  <g fill="url(#ring)">
+    <path d="M330 640 a182 96 0 0 1 364 0 v34 h-72 v-30 a110 58 0 0 0 -220 0 v30 h-72 z"/>
+    <rect x="322" y="682" width="88" height="46" rx="10"/>
+    <rect x="614" y="682" width="88" height="46" rx="10"/>
+    <rect x="312" y="736" width="98" height="46" rx="10"/>
+    <rect x="614" y="736" width="98" height="46" rx="10"/>
+  </g>
+  <!-- layer seams -->
+  <g stroke="#173a63" stroke-opacity=".35" stroke-width="8" stroke-linecap="round">
+    <line x1="336" y1="682" x2="404" y2="682"/>
+    <line x1="620" y1="682" x2="688" y2="682"/>
+    <line x1="326" y1="736" x2="404" y2="736"/>
+    <line x1="620" y1="736" x2="698" y2="736"/>
+  </g>
+  <!-- fresh yellow layer being laid where the filament lands -->
+  <rect x="452" y="596" width="120" height="34" rx="14" fill="#ffd166"/>
+</svg>

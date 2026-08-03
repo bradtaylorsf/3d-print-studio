@@ -46,6 +46,10 @@ the server and opens http://localhost:8765/ in your browser. On a Mac you can al
 There is no npm install, no build step, no cloud dependency — three.js is vendored in
 `studio/static/three/`.
 
+**Want a Dock icon?** Run `studio/make_app.sh` — it builds **3D Print Studio.app** into
+`~/Applications` (icon and all, from `studio/static/icon.svg`). Drag it to your Dock or
+launch it from Spotlight/Alfred; it starts the server if needed and opens the page.
+
 ### Kid mode 🧸
 
 Click the **🧸** button (or open `http://localhost:8765/?kid=1`) and the UI drops to
