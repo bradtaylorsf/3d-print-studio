@@ -162,6 +162,9 @@ the location Claude Code/Cowork scans automatically.
 - **printer-setup** — onboard a printer or new user: interview, research the machine,
   build `printers/<slug>/` knowledge base (profile, resources index, common problems,
   running what-worked log).
+- **contributing** — problem-driven lifecycle for any change or PR to this repo:
+  problem → research → hypothesis → smallest experiment → build → verify → PR. Use it
+  whenever someone wants to add/fix something or says "create a PR".
 
 ---
 
