@@ -338,6 +338,23 @@ $('slice-btn').onclick = async () => {
     : `slice failed: ${j.error}`, 6000);
 };
 
+// ---------- kid mode -------------------------------------------------------
+const KID_COLORS = ['#4a90d9', '#e2703a', '#4caf7d', '#b06ab3', '#e8c547', '#d95970', '#8d99ae'];
+for (const c of KID_COLORS) {
+  const b = document.createElement('button');
+  b.style.background = c;
+  b.title = 'paint it!';
+  b.onclick = () => modelGroup.children.forEach((m) => m.material.color.set(c));
+  $('swatches').appendChild(b);
+}
+function setKid(on) {
+  document.body.classList.toggle('kid', on);
+  localStorage.setItem('kidMode', on ? '1' : '');
+}
+$('kid-btn').onclick = () => setKid(!document.body.classList.contains('kid'));
+setKid(localStorage.getItem('kidMode') === '1'
+  || new URLSearchParams(location.search).get('kid') === '1');
+
 // ---------- preset views ---------------------------------------------------
 const VIEW_DIRS = {
   front: [0, -1, 0], back: [0, 1, 0], left: [-1, 0, 0], right: [1, 0, 0],

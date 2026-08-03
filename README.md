@@ -28,7 +28,7 @@ project that Claude (or you) edits.
 | `MANIFEST.md` | Index of every project and its status |
 | `CLAUDE.md` / `AGENTS.md` | Instructions Claude Code (or any agent) loads to work in this repo |
 
-## Setup (5 minutes)
+## Setup
 
 Requirements: Python 3.10+, [Claude Code](https://claude.com/claude-code), a 3D printer's
 slicer installed locally. macOS is tested; Linux works except the one-click slicer button.
@@ -36,18 +36,22 @@ slicer installed locally. macOS is tested; Linux works except the one-click slic
 ```bash
 git clone https://github.com/bradtaylorsf/3d-print-studio.git
 cd 3d-print-studio
-python3 -m venv .venv
-.venv/bin/pip install trimesh manifold3d numpy scipy shapely matplotlib pillow opencv-python-headless scikit-image
+./start.sh
 ```
 
-Start the studio:
+That's it. First run sets up the Python environment (a few minutes); every run after starts
+the server and opens http://localhost:8765/ in your browser. On a Mac you can also just
+**double-click `Studio.command` in Finder** — same thing, no terminal needed.
 
-```bash
-.venv/bin/python studio/server.py
-```
+There is no npm install, no build step, no cloud dependency — three.js is vendored in
+`studio/static/three/`.
 
-Open http://localhost:8765/ — that's the whole stack. three.js is vendored in
-`studio/static/three/`; there is no npm install, no build step, no cloud dependency.
+### Kid mode 🧸
+
+Click the **🧸** button (or open `http://localhost:8765/?kid=1`) and the UI drops to
+big-button basics: spin, zoom, **FIT me!**, paint the model with color dots, and a giant
+📸. Great for kids steering a design while a grown-up (or Claude) drives the geometry.
+Click 🧸 again for the full controls. The choice sticks per browser.
 
 ## Getting started
 

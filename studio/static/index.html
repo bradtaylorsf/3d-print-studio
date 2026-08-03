@@ -34,8 +34,10 @@
     </select>
     <input type="range" id="clip-pos" min="0" max="300" value="150" step="1" disabled>
   </div>
+  <div id="swatches" title="Paint the model"></div>
   <button id="capture-btn" title="Save a screenshot into the project's refs/ folder">📸 capture</button>
   <button id="slice-btn" title="Open the displayed model in Creality Print">🖨 slice</button>
+  <button id="kid-btn" title="Toggle kid mode — big buttons, simple controls">🧸</button>
   <span id="reload-dot" title="watching for changes">●</span>
 </header>
 
@@ -44,6 +46,7 @@
     <div id="drop-hint">drop images (→ refs) or STL/3MF files (→ source) anywhere</div>
     <div id="toast"></div>
     <div id="legend">drag&thinsp;=&thinsp;orbit &nbsp;·&nbsp; shift-drag / right-drag / arrows&thinsp;=&thinsp;pan &nbsp;·&nbsp; scroll&thinsp;=&thinsp;zoom &nbsp;·&nbsp; double-click&thinsp;=&thinsp;re-center</div>
+    <div id="legend-kid">🖱️ drag to spin it &nbsp;·&nbsp; scroll to get closer &nbsp;·&nbsp; 📸 takes a picture!</div>
   </div>
   <img id="ref-viewer" alt="reference" hidden>
 </main>

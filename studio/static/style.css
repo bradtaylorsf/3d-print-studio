@@ -58,6 +58,30 @@ body.dragging #drop-hint { display: flex; }
   position: absolute; left: 12px; bottom: 10px; color: var(--dim);
   font-size: 11px; pointer-events: none; user-select: none; opacity: .8;
 }
+#legend-kid {
+  position: absolute; left: 50%; bottom: 14px; transform: translateX(-50%);
+  color: var(--fg); font-size: 16px; pointer-events: none; user-select: none;
+  display: none;
+}
+
+/* ---- kid mode: big friendly controls, no jargon ---- */
+#swatches { display: none; align-items: center; gap: 7px; }
+#swatches button {
+  width: 30px; height: 30px; border-radius: 50%; padding: 0;
+  border: 2px solid rgba(255,255,255,.25);
+}
+#swatches button:hover { transform: scale(1.15); border-color: #fff; }
+body.kid { grid-template: "top top" 64px "main side" 1fr / 1fr 200px; }
+body.kid button, body.kid select { font-size: 17px; padding: 9px 15px; border-radius: 12px; }
+body.kid #view-buttons button[data-view],
+body.kid .chk, body.kid #clip-axis, body.kid #clip-pos,
+body.kid #slice-btn, body.kid #url-btn, body.kid #new-project-btn,
+body.kid #stats, body.kid #legend { display: none; }
+body.kid #swatches { display: flex; }
+body.kid #swatches button { width: 38px; height: 38px; }
+body.kid #legend-kid { display: block; }
+body.kid #fit-btn::after { content: " me!"; }
+body.kid #capture-btn { font-size: 20px; }
 
 #sidebar {
   grid-area: side; background: var(--panel); border-left: 1px solid var(--edge);
