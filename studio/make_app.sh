@@ -38,6 +38,7 @@ cat > "$APP/Contents/Info.plist" <<PLIST
   <key>CFBundleIconFile</key><string>studio</string>
   <key>CFBundlePackageType</key><string>APPL</string>
   <key>LSMinimumSystemVersion</key><string>11.0</string>
+  <key>LSUIElement</key><true/>
 </dict></plist>
 PLIST
 
@@ -48,9 +49,17 @@ if curl -s -o /dev/null --max-time 1 http://localhost:8765/; then
   open "http://localhost:8765/"
   exit 0
 fi
-exec "$REPO/start.sh"
+# Start the server DETACHED and exit — LaunchServices kills script apps
+# that linger, so the app process must return immediately.
+nohup "$REPO/start.sh" >/dev/null 2>&1 &
+disown
+exit 0
 LAUNCH
 chmod +x "$APP/Contents/MacOS/studio"
+
+# Ad-hoc sign: gives the app a stable identity so macOS shows the
+# Documents-access permission prompt instead of silently denying it.
+codesign --force --deep -s - "$APP"
 
 rm -rf "$TMP"
 touch "$APP"   # nudge Finder to refresh the icon
