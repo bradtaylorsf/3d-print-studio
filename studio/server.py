@@ -92,9 +92,12 @@ def model_parts(pdir):
 
 
 def part_color(pdir, rel, index):
-    cfg = os.path.join(pdir, "parts.json")
+    # parts.json may sit at the project root or next to the STLs in parts/
     base = os.path.basename(rel)
-    if os.path.isfile(cfg):
+    for cfg in (os.path.join(pdir, "parts.json"),
+                os.path.join(pdir, "parts", "parts.json")):
+        if not os.path.isfile(cfg):
+            continue
         try:
             with open(cfg) as f:
                 colors = json.load(f)
