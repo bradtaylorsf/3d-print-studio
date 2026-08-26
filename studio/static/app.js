@@ -61,7 +61,7 @@ function resize() {
 }
 new ResizeObserver(resize).observe(canvas);
 
-renderer.setAnimationLoop(() => { resize(); controls.update(); renderer.render(scene, camera); });
+renderer.setAnimationLoop((now) => { resize(); buildFx.tick(now); controls.update(); renderer.render(scene, camera); });
 
 // ---------- state ----------------------------------------------------------
 let project = null;
@@ -105,12 +105,21 @@ async function loadPart(part, entry) {
     entry.mesh.geometry = geom;
   } else {
     entry.mesh = new THREE.Mesh(geom, makeMaterial(part.color));
+    entry.mesh.visible = !viewOverride;   // stay hidden while a file view is open
     modelGroup.add(entry.mesh);
   }
 }
 
+function frameSubject() {
+  // what FIT should frame: the file being viewed, else the floating build
+  // card, else the live model. Framing hidden geometry sent the camera to
+  // nowhere and read as "FIT is broken".
+  if (viewOverride && overrideMesh) return overrideMesh;
+  if (buildFx.active && buildFx.group) return buildFx.group;
+  return modelGroup;
+}
 function frameModel(dir) {
-  const box = new THREE.Box3().setFromObject(modelGroup);
+  const box = new THREE.Box3().setFromObject(frameSubject());
   if (box.isEmpty()) return;
   const c = box.getCenter(new THREE.Vector3());
   const r = Math.max(box.getSize(new THREE.Vector3()).length() / 2, 20);
@@ -147,6 +156,7 @@ async function reloadModel(changed) {
     dot.className = '';
     renderStatsPending(manifest.parts);
     refreshInfo();
+    renderFiles();
   } catch (e) {
     dot.className = 'err';
     toast(`load failed: ${e.message}`);
@@ -170,8 +180,10 @@ function renderStatsPending(parts) {
 }
 
 async function refreshInfo() {
+  const forProject = project;
   try {
     const info = await api(`/api/projects/${project}/info`);
+    if (project !== forProject) return;   // switched away while computing
     const c = info.combined;
     if (!c || !Object.keys(c).length) {
       $('stats-body').innerHTML = info.parts.map((p) =>
@@ -233,40 +245,146 @@ setInterval(async () => {
       await reloadModel(changed);
     }
 
-    const rk = st.refs.map((r) => r.file + r.mtime).join('|');
-    if (rk !== refsKey) { refsKey = rk; renderRefs(); }
   } catch {
     $('reload-dot').className = 'err';
   }
 }, 1000);
 
-// ---------- refs -----------------------------------------------------------
-async function renderRefs() {
-  const { refs } = await api(`/api/projects/${project}/refs`);
+// ---------- the picture library --------------------------------------------
+// ONE global pool: every generated or imported image lands in the `library`
+// project, and creations are spawned FROM it. One picture -> one model.
+const LIB = 'library';
+let activeRef = null;           // { file, src } — src is the project serving it
+function openRef(file, url, src = LIB) {
+  activeRef = { file, src };
+  $('ref-viewer').src = url;
+  $('ref-pane').hidden = false;
+  $('layout').classList.add('split');
+  $('refs-strip').querySelectorAll('img').forEach((i) =>
+    i.classList.toggle('active', i.title === file));
+}
+function closeRef() {
+  activeRef = null;
+  $('ref-pane').hidden = true;
+  $('layout').classList.remove('split');
+  $('refs-strip').querySelectorAll('img').forEach((i) => i.classList.remove('active'));
+}
+$('ref-close').onclick = closeRef;
+$('ref-make3d').onclick = () => { if (activeRef) startBuild(activeRef.file, activeRef.src); };
+
+let libKey = '';
+async function renderRefs(force) {
+  const { refs } = await api(`/api/projects/${LIB}/refs`);
+  const key = refs.map((r) => r.file + r.mtime).join('|');
+  if (!force && key === libKey) return;
+  libKey = key;
   const strip = $('refs-strip');
   strip.innerHTML = '';
-  for (const r of refs) {
+  for (const r of refs.slice().reverse()) {          // newest first
     const img = document.createElement('img');
     img.src = r.url;
     img.title = r.file;
-    img.onclick = () => {
-      const viewer = $('ref-viewer');
-      const active = img.classList.contains('active');
-      strip.querySelectorAll('img').forEach((i) => i.classList.remove('active'));
-      if (active) {
-        viewer.hidden = true;
-        $('layout').classList.remove('split');
-      } else {
-        img.classList.add('active');
-        viewer.src = r.url;
-        viewer.hidden = false;
-        $('layout').classList.add('split');
-      }
-    };
+    img.onclick = () =>
+      img.classList.contains('active') ? closeRef() : openRef(r.file, r.url, LIB);
     strip.appendChild(img);
   }
-  if (!refs.length) strip.innerHTML = '<span class="hint" style="color:var(--dim)">none yet</span>';
+  if (!refs.length) strip.innerHTML = '<span class="hint" style="color:var(--dim)">none yet — ✨ make one!</span>';
 }
+setInterval(() => renderRefs(false), 6000);
+
+// ---------- 3d files browser + view override -------------------------------
+let viewOverride = null;      // rel path currently being viewed instead of live
+let overrideMesh = null;
+let nanoKeyPresent = false;
+
+async function renderFiles() {
+  try {
+    const j = await api(`/api/projects/${project}/files`);
+    nanoKeyPresent = j.nano_key;
+    const list = $('files-list');
+    if (!j.files.length) { list.innerHTML = '<span class="hint">none yet</span>'; return; }
+    list.innerHTML = '';
+    let lastKind = null;
+    for (const f of j.files) {
+      if (f.kind !== lastKind) {
+        lastKind = f.kind;
+        const g = document.createElement('div');
+        g.className = 'file-group';
+        g.textContent = { live: 'live', part: 'parts', final: 'final', source: 'source' }[f.kind];
+        list.appendChild(g);
+      }
+      const row = document.createElement('div');
+      row.className = 'file-row' + (viewOverride === f.rel ? ' viewing' : '');
+      row.innerHTML = `<span class="fname">${f.rel.replace(/^(parts|final|source)\//, '')}</span>` +
+        `<span class="fkind">${(f.size / 1024).toFixed(0)}k</span>`;
+      row.onclick = () => (viewOverride === f.rel ? backToLive() : viewFile(f.rel));
+      list.appendChild(row);
+    }
+  } catch { /* sidebar only */ }
+}
+
+async function viewFile(rel) {
+  toast(`loading ${rel}…`, 0);
+  try {
+    const buf = await fetch(`/api/projects/${project}/file?rel=${encodeURIComponent(rel)}&t=${Date.now()}`)
+      .then((r) => { if (!r.ok) throw new Error(`HTTP ${r.status}`); return r.arrayBuffer(); });
+    const geom = loader.parse(buf);
+    geom.computeVertexNormals();
+    // hide the live model, show just this file
+    modelGroup.children.forEach((m) => { m.visible = false; });
+    if (overrideMesh) { scene.remove(overrideMesh); overrideMesh.geometry.dispose(); }
+    overrideMesh = new THREE.Mesh(geom, makeMaterial('#d9a44a'));
+    scene.add(overrideMesh);
+    viewOverride = rel;
+    $('view-banner-label').textContent = `viewing ${rel}`;
+    $('view-banner').hidden = false;
+    $('toast').classList.remove('show');
+    const box = new THREE.Box3().setFromObject(overrideMesh);
+    const c = box.getCenter(new THREE.Vector3());
+    const r2 = Math.max(box.getSize(new THREE.Vector3()).length() / 2, 20);
+    controls.target.copy(c);
+    camera.position.copy(c).add(new THREE.Vector3(1, -1, 0.8).normalize().multiplyScalar(r2 * 2.4));
+    renderFiles();
+  } catch (e) {
+    toast(`could not load ${rel}: ${e.message}`);
+  }
+}
+
+function backToLive() {
+  if (overrideMesh) { scene.remove(overrideMesh); overrideMesh.geometry.dispose(); overrideMesh = null; }
+  viewOverride = null;
+  modelGroup.children.forEach((m) => { m.visible = true; });
+  $('view-banner').hidden = true;
+  fitCamera();
+  renderFiles();
+}
+$('view-banner-back').onclick = backToLive;
+
+// ---------- my stuff: one thumbnail per creation, click to visit ----------
+async function renderCreations() {
+  try {
+    const { projects } = await api('/api/projects');
+    const strip = $('creations-strip');
+    strip.innerHTML = '';
+    let shown = 0;
+    for (const pr of projects) {
+      if (!pr.has_model || pr.name === LIB) continue;
+      const { refs } = await api(`/api/projects/${pr.name}/refs`).catch(() => ({ refs: [] }));
+      if (!refs?.length) continue;   // no picture, no tile — kids navigate by image
+      const holder = document.createElement('div');
+      holder.className = 'creation' + (pr.name === project ? ' here' : '');
+      holder.title = pr.name;
+      const img = document.createElement('img');
+      img.src = refs[refs.length - 1].url;
+      holder.appendChild(img);
+      holder.onclick = () => { if (pr.name !== project) selectProject(pr.name); };
+      strip.appendChild(holder);
+      shown++;
+    }
+    $('creations').hidden = shown < 2;   // pointless with one thing
+  } catch { /* sidebar only */ }
+}
+setInterval(renderCreations, 8000);
 
 // drag & drop upload
 let dragDepth = 0;
@@ -280,14 +398,16 @@ addEventListener('drop', async (e) => {
   if (!project) return;
   for (const file of e.dataTransfer.files) {
     const isMesh = /\.(stl|3mf)$/i.test(file.name);
+    const target = isMesh ? project : LIB;             // pictures -> the library
     const endpoint = isMesh ? 'source' : 'refs';
-    const r = await fetch(`/api/projects/${project}/${endpoint}?name=${encodeURIComponent(file.name)}`,
+    const r = await fetch(`/api/projects/${target}/${endpoint}?name=${encodeURIComponent(file.name)}`,
       { method: 'POST', body: file });
     const j = await r.json();
     toast(r.ok
       ? `saved ${j.path}${j.live_model ? ' — now showing as live model' : ''}`
       : `upload failed: ${j.error}`);
   }
+  renderRefs(true);
 });
 
 // ---------- new project / URL import --------------------------------------
@@ -328,28 +448,131 @@ $('capture-btn').onclick = () => {
   }, 'image/png');
 };
 
-$('slice-btn').onclick = async () => {
+async function doSlice(kid) {
   if (!project) return;
-  toast('sending to Creality Print…', 0);
+  toast(kid ? 'sending it to the printer… 🖨️' : 'sending to Creality Print…', 0);
   const r = await fetch(`/api/projects/${project}/slice`, { method: 'POST' });
   const j = await r.json();
-  toast(r.ok
-    ? `opened ${j.opened.length} file${j.opened.length > 1 ? 's' : ''} in ${j.app}${j.role !== 'live' ? ` (from ${j.role}/)` : ''}`
-    : `slice failed: ${j.error}`, 6000);
-};
+  if (!r.ok) return toast(kid ? '🙈 that didn’t work — ask a grown-up!' : `slice failed: ${j.error}`, 6000);
+  if (kid) {
+    $('toast').classList.remove('show');
+    $('grownup-overlay').hidden = false;
+  } else {
+    toast(`opened ${j.opened.length} file${j.opened.length > 1 ? 's' : ''} in ${j.app}${j.role !== 'live' ? ` (from ${j.role}/)` : ''}`, 6000);
+  }
+}
+$('slice-btn').onclick = () => doSlice(false);
+$('kid-print-btn').onclick = () => doSlice(true);
+$('grownup-ok').onclick = () => { $('grownup-overlay').hidden = true; };
 
-// ---------- kid mode -------------------------------------------------------
-const KID_COLORS = ['#4a90d9', '#e2703a', '#4caf7d', '#b06ab3', '#e8c547', '#d95970', '#8d99ae'];
+// ---------- painting: pick a color, tap a part -----------------------------
+const KID_COLORS = ['#4a90d9', '#e2703a', '#4caf7d', '#b06ab3', '#e8c547', '#d95970',
+  '#8d99ae', '#f2f2f4', '#2f2f36'];
+let brushColor = null;
 for (const c of KID_COLORS) {
   const b = document.createElement('button');
   b.style.background = c;
-  b.title = 'paint it!';
-  b.onclick = () => modelGroup.children.forEach((m) => m.material.color.set(c));
+  b.title = 'pick this color, then tap a part of the model';
+  b.onclick = () => {
+    const was = b.classList.contains('sel');
+    $('swatches').querySelectorAll('button').forEach((x) => x.classList.remove('sel'));
+    brushColor = was ? null : c;
+    if (!was) b.classList.add('sel');
+    if (brushColor && modelGroup.children.length === 1) paintMesh(modelGroup.children[0]);
+    else if (brushColor) toast('now tap the part you want to paint!');
+  };
   $('swatches').appendChild(b);
 }
+
+function fileOfMesh(mesh) {
+  for (const [file, e] of meshes) if (e.mesh === mesh) return file;
+  return null;
+}
+
+async function paintMesh(mesh) {
+  mesh.material.color.set(brushColor);
+  const file = fileOfMesh(mesh);
+  if (!file || viewOverride) return;   // override views are look-only
+  await fetch(`/api/projects/${project}/colors`, {
+    method: 'POST',
+    body: JSON.stringify({ [file.replace(/^parts\//, '')]: brushColor }),
+  }).catch(() => {});
+}
+
+// click (not drag) on the canvas paints the part under the cursor
+const raycaster = new THREE.Raycaster();
+let downAt = null;
+canvas.addEventListener('pointerdown', (e) => { downAt = [e.clientX, e.clientY]; });
+canvas.addEventListener('pointerup', (e) => {
+  if (!downAt || !brushColor) return;
+  const moved = Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]);
+  downAt = null;
+  if (moved > 6) return;               // that was an orbit, not a tap
+  const r = canvas.getBoundingClientRect();
+  raycaster.setFromCamera(new THREE.Vector2(
+    ((e.clientX - r.left) / r.width) * 2 - 1,
+    -((e.clientY - r.top) / r.height) * 2 + 1), camera);
+  const hits = raycaster.intersectObjects(overrideMesh ? [overrideMesh] : modelGroup.children);
+  if (hits.length) paintMesh(hits[0].object);
+});
+
+// ---------- kid home: full-screen picture grid -----------------------------
+// The pictures ARE the interface. Tap one that already has a 3D -> see it.
+// Tap one that doesn't -> the coin is cut on the spot (~2 s) and revealed.
+async function renderHome() {
+  try {
+    const { images } = await api('/api/library');
+    const grid = $('kid-home-grid');
+    grid.innerHTML = '';
+    const add = document.createElement('div');
+    add.className = 'home-tile new-tile';
+    add.innerHTML = '✨<span>I want…</span>';
+    add.onclick = () => { $('wizard').hidden = false; wizStage('wiz-ask'); $('wiz-input').focus(); };
+    grid.appendChild(add);
+    for (const im of images.slice().reverse()) {
+      const tile = document.createElement('div');
+      tile.className = 'home-tile';
+      tile.innerHTML = `<img src="${im.url}" alt="">` +
+        (im.project ? '<span class="badge3d">🧊</span>' : '');
+      tile.onclick = () => openCreation(im);
+      grid.appendChild(tile);
+    }
+  } catch { /* retry next poll */ }
+}
+
+async function openCreation(im) {
+  $('kid-home').hidden = true;
+  $('kid-back').hidden = !document.body.classList.contains('kid');
+  if (im.project) {
+    if (im.project !== project) await refreshProjectList(im.project);
+    openRef(im.file, im.url, LIB);
+    fitCamera();
+  } else {
+    openRef(im.file, im.url, LIB);
+    await makeCoin(im.file, LIB);      // ~2 s, ends in the reveal
+    openRef(im.file, im.url, LIB);     // selectProject closed the pane — restore
+    fitCamera();
+    renderHome();                      // it has a 🧊 badge now
+  }
+}
+
+function showHome() {
+  closeRef();
+  renderHome();
+  $('kid-home').hidden = false;
+  $('kid-back').hidden = true;
+}
+$('kid-back').onclick = showHome;
+setInterval(() => { if (!$('kid-home').hidden) renderHome(); }, 8000);
+
+// ---------- kid mode -------------------------------------------------------
 function setKid(on) {
   document.body.classList.toggle('kid', on);
   localStorage.setItem('kidMode', on ? '1' : '');
+  $('gen-btn-label').textContent = on ? 'I want…' : 'generate';
+  $('kid-print-btn').hidden = !on;
+  if (on) showHome();
+  else { $('kid-home').hidden = true; $('kid-back').hidden = true; }
 }
 $('kid-btn').onclick = () => setKid(!document.body.classList.contains('kid'));
 setKid(localStorage.getItem('kidMode') === '1'
@@ -389,11 +612,19 @@ async function selectProject(name) {
   project = name;
   firstFit = true;
   refsKey = '';
+  closeRef();
+  if (viewOverride) backToLive();
+  buildFx.hide();
   for (const [, e] of meshes) { if (e.mesh) { modelGroup.remove(e.mesh); e.mesh.geometry.dispose(); } }
   meshes.clear();
   history.replaceState(null, '', `?project=${encodeURIComponent(name)}`);
   document.title = `${name} — studio`;
+  const sel = $('project-select');
+  if (sel.value !== name && [...sel.options].some((o) => o.value === name)) sel.value = name;
   renderRefs();
+  renderFiles();
+  renderCreations();
+  checkBuild();
   const st = await api(`/api/projects/${project}/status`);
   if (st.parts.length) {
     await reloadModel(null);
@@ -406,10 +637,312 @@ async function selectProject(name) {
   }
 }
 
+// ---------- ✨ wizard: ask → draw → pick → make me 3D ----------------------
+const wizState = { selected: null };
+function wizStage(name) {
+  for (const s of ['wiz-ask', 'wiz-busy', 'wiz-pick']) $(s).hidden = s !== name;
+}
+$('gen-btn').onclick = () => {
+  if (!project) return;
+  $('wizard').hidden = false;
+  wizStage('wiz-ask');
+  $('wiz-input').focus();
+};
+$('wizard-close').onclick = () => { $('wizard').hidden = true; };
+$('wiz-go').onclick = () => runGenerate();
+$('wiz-more').onclick = () => runGenerate();
+$('wiz-input').addEventListener('keydown', (e) => { if (e.key === 'Enter') runGenerate(); });
+
+const BUSY_EMOJI = ['🎨', '🖍️', '✏️', '🖌️', '🌈'];
+let busyTimer = null;
+async function runGenerate() {
+  const subject = $('wiz-input').value.trim();
+  if (!subject) return;
+  const provider = document.querySelector('input[name=prov]:checked')?.value || 'auto';
+  wizStage('wiz-busy');
+  let i = 0;
+  clearInterval(busyTimer);
+  busyTimer = setInterval(() => {
+    $('wiz-busy-emoji').textContent = BUSY_EMOJI[++i % BUSY_EMOJI.length];
+  }, 900);
+  try {
+    const style = document.body.classList.contains('kid') ? 'sticker' : 'turnaround';
+    const r = await fetch(`/api/projects/${LIB}/generate`,
+      { method: 'POST', body: JSON.stringify({ subject, provider, style }) });
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error);
+    wizState.selected = null;
+    $('wiz-make3d').disabled = true;
+    $('wiz-coin').disabled = true;
+    const grid = $('wiz-grid');
+    grid.innerHTML = '';
+    for (const im of j.images) {
+      const img = document.createElement('img');
+      img.src = im.url;
+      img.onclick = () => {
+        grid.querySelectorAll('img').forEach((x) => x.classList.remove('sel'));
+        img.classList.add('sel');
+        wizState.selected = im.file;
+        $('wiz-make3d').disabled = false;
+        $('wiz-coin').disabled = false;
+      };
+      grid.appendChild(img);
+    }
+    wizStage('wiz-pick');
+    renderRefs(true);
+    if (j.errors?.length) toast(`note: ${j.errors[0]}`, 5000);
+  } catch (e) {
+    wizStage('wiz-ask');
+    const kid = document.body.classList.contains('kid');
+    toast(kid ? '🙈 drawing didn’t work — ask a grown-up!' : `generate failed: ${e.message}`, 8000);
+  } finally {
+    clearInterval(busyTimer);
+  }
+}
+
+async function makeCoin(imageFile, src = LIB) {
+  const kid = document.body.classList.contains('kid');
+  toast(kid ? 'Cutting your coin… 🪙' : 'tracing coin…', 0);
+  const r = await fetch(`/api/projects/${src}/coin`,
+    { method: 'POST', body: JSON.stringify({ image: imageFile }) });
+  const j = await r.json();
+  if (!r.ok) {
+    return toast(kid ? '🙈 That picture didn’t work — pick another!' : `coin: ${j.error}`, 8000);
+  }
+  if (j.project !== project) await refreshProjectList(j.project);
+  await reloadModel(null);
+  buildFx.reveal();
+  toast(kid ? 'Pick a color, then tap a part to paint it!' : j.report?.split('\n')[0] || 'coin ready', 8000);
+}
+$('wiz-coin').onclick = () => {
+  if (!wizState.selected) return;
+  $('wizard').hidden = true;
+  $('kid-home').hidden = true;
+  $('kid-back').hidden = !document.body.classList.contains('kid');
+  makeCoin(wizState.selected);
+};
+$('ref-coin').onclick = () => { if (activeRef) makeCoin(activeRef.file, activeRef.src); };
+
+$('wiz-make3d').onclick = () => {
+  if (!wizState.selected) return;
+  $('wizard').hidden = true;
+  $('kid-home').hidden = true;
+  $('kid-back').hidden = !document.body.classList.contains('kid');
+  startBuild(wizState.selected);
+};
+
+// ---------- build FX -------------------------------------------------------
+// While the robot works: the picture the kid chose floats over the build
+// plate (the old model is hidden — it confused people into thinking it was
+// the new one). When the build lands: the model pops up out of the plate,
+// takes a turntable spin, and gets confetti.
+function elasticOut(x) {
+  const c4 = (2 * Math.PI) / 3;
+  return x <= 0 ? 0 : x >= 1 ? 1 : Math.pow(2, -10 * x) * Math.sin((x * 10 - 0.75) * c4) + 1;
+}
+
+const buildFx = {
+  active: false, group: null, card: null, sparkles: null,
+  revealing: false, revealT0: 0, center: new THREE.Vector3(),
+
+  async show(imageFile) {
+    if (this.active) return;
+    this.active = true;
+    modelGroup.visible = false;
+    let tex = null;
+    try {
+      tex = await new Promise((res, rej) => new THREE.TextureLoader().load(
+        `/api/projects/${project}/refs/${imageFile}?t=${Date.now()}`, res, undefined, rej));
+    } catch { /* card shows as a plain polaroid */ }
+    if (!this.active) { tex?.dispose(); return; }   // cancelled while loading
+    const g = new THREE.Group();
+    g.position.set(150, 150, 85);
+    const w = 100;
+    const h = tex?.image ? w * tex.image.height / tex.image.width : w;
+    const card = new THREE.Group();
+    const backing = new THREE.Mesh(                  // white polaroid frame
+      new THREE.PlaneGeometry(w * 1.08, h * 1.08 + 6),
+      new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide }));
+    backing.position.y = -3;
+    card.add(backing);
+    if (tex) {
+      tex.colorSpace = THREE.SRGBColorSpace;
+      const img = new THREE.Mesh(
+        new THREE.PlaneGeometry(w, h),
+        new THREE.MeshBasicMaterial({ map: tex, side: THREE.DoubleSide }));
+      img.position.z = 0.5;
+      card.add(img);
+    }
+    g.add(card);
+    const pts = [];
+    for (let i = 0; i < 46; i++) {
+      const a = Math.random() * Math.PI * 2, r = 75 + Math.random() * 22;
+      pts.push(r * Math.cos(a), r * Math.sin(a) * 0.4, (Math.random() - 0.5) * 110);
+    }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.Float32BufferAttribute(pts, 3));
+    const sparkles = new THREE.Points(geo, new THREE.PointsMaterial({
+      color: 0xe8c547, size: 3.2, sizeAttenuation: true, transparent: true, opacity: 0.9 }));
+    g.add(sparkles);
+    scene.add(g);
+    this.group = g; this.card = card; this.sparkles = sparkles;
+  },
+
+  hide() {
+    this.active = false;
+    if (this.group) {
+      scene.remove(this.group);
+      this.group.traverse((o) => { o.geometry?.dispose(); o.material?.map?.dispose(); o.material?.dispose?.(); });
+      this.group = this.card = this.sparkles = null;
+    }
+    modelGroup.visible = true;
+  },
+
+  reveal() {
+    this.hide();
+    if (viewOverride) return;               // they're looking at a file — no circus
+    fitCamera();
+    const box = new THREE.Box3().setFromObject(modelGroup);
+    if (!box.isEmpty()) box.getCenter(this.center);
+    this.center.z = 0;                      // grow up out of the build plate
+    this.revealing = true;
+    this.revealT0 = performance.now();
+    modelGroup.scale.setScalar(0.001);
+    controls.autoRotate = true;
+    controls.autoRotateSpeed = 5;
+    setTimeout(() => { controls.autoRotate = false; }, 4500);
+    confettiBurst();
+    revealText(document.body.classList.contains('kid') ? '🎉 It’s here!' : '🎉 built');
+  },
+
+  tick(now) {
+    const t = now / 1000;
+    if (this.card) {
+      this.group.position.z = 85 + 6 * Math.sin(t * 1.6);
+      this.card.quaternion.copy(camera.quaternion);   // always face the kid
+      this.card.rotateZ(0.05 * Math.sin(t * 1.1));    // gentle sway
+      this.sparkles.rotation.z = t * 0.45;
+    }
+    if (this.revealing) {
+      const k = (now - this.revealT0) / 950;
+      const s = k >= 1 ? 1 : elasticOut(k);
+      modelGroup.scale.setScalar(Math.max(s, 0.001));
+      modelGroup.position.set(this.center.x * (1 - s), this.center.y * (1 - s), 0);
+      if (k >= 1) { this.revealing = false; modelGroup.scale.setScalar(1); modelGroup.position.set(0, 0, 0); }
+    }
+  },
+};
+controls.addEventListener('start', () => { controls.autoRotate = false; });  // kid grabs it → their spin wins
+
+function confettiBurst() {
+  const holder = document.createElement('div');
+  holder.className = 'confetti';
+  const colors = ['#4a90d9', '#e2703a', '#4caf7d', '#b06ab3', '#e8c547', '#d95970'];
+  for (let i = 0; i < 90; i++) {
+    const p = document.createElement('i');
+    p.style.left = Math.random() * 100 + '%';
+    p.style.background = colors[i % colors.length];
+    p.style.animationDelay = Math.random() * 0.7 + 's';
+    p.style.animationDuration = 1.6 + Math.random() * 1.5 + 's';
+    const s = 6 + Math.random() * 8;
+    p.style.width = s + 'px';
+    p.style.height = s * 0.45 + 'px';
+    holder.appendChild(p);
+  }
+  $('viewport').appendChild(holder);
+  setTimeout(() => holder.remove(), 3800);
+}
+
+function revealText(msg) {
+  const d = document.createElement('div');
+  d.id = 'reveal-text';
+  d.textContent = msg;
+  $('viewport').appendChild(d);
+  setTimeout(() => d.remove(), 2600);
+}
+
+// ---------- 🤖 make me 3D: spawn Claude, watch it work ---------------------
+async function startBuild(imageFile, src = LIB) {
+  const kid = document.body.classList.contains('kid');
+  const r = await fetch(`/api/projects/${src}/make3d`,
+    { method: 'POST', body: JSON.stringify({ image: imageFile }) });
+  const j = await r.json();
+  if (!r.ok) {
+    return toast(kid ? '🙈 the robot is busy — ask a grown-up!' : `make3d: ${j.error}`, 8000);
+  }
+  closeRef();
+  if (j.project && j.project !== project) {
+    await refreshProjectList(j.project);   // the build got its own project
+  }
+  $('build-banner').hidden = false;
+  $('build-banner-text').textContent = kid ? 'The robot is building your 3D…' : 'Claude is building the model…';
+  buildFx.show(j.image || imageFile);
+}
+
+$('build-cancel').onclick = async () => {
+  const r = await fetch(`/api/projects/${project}/make3d/cancel`, { method: 'POST' });
+  if (r.ok) { buildFx.hide(); $('build-banner').hidden = true; toast('build stopped'); }
+};
+
+let lastBuild = { project: null, state: 'idle' };
+async function checkBuild() {
+  if (!project) return;
+  try {
+    const s = await api(`/api/projects/${project}/make3d`);
+    if (lastBuild.project !== project) {
+      // just arrived here — adopt current state, no false "just finished"
+      lastBuild = { project, state: s.state };
+      if (s.state !== 'running' && buildFx.active) buildFx.hide();
+    }
+    const kid = document.body.classList.contains('kid');
+    if (s.state === 'running') {
+      const m = Math.floor(s.elapsed / 60), sec = String(s.elapsed % 60).padStart(2, '0');
+      $('build-banner').hidden = false;
+      // once real files land, say so — a long silent build reads as stuck
+      const phase = s.wrote_files
+        ? (kid ? 'Almost there — making it better… ' : 'Model on disk, refining… ')
+        : (kid ? 'The robot is building your 3D… ' : 'Claude is building the model… ');
+      $('build-banner-text').textContent = phase + `${m}:${sec}`;
+      if (!buildFx.active && s.image) buildFx.show(s.image);  // page opened mid-build
+    } else {
+      if (lastBuild.state === 'running') {
+        $('build-banner').hidden = true;
+        if (s.exit === 0) {
+          await reloadModel(null);          // make sure the NEW model is what pops up
+          buildFx.reveal();
+          toast(kid ? 'Pick a color, then tap a part to paint it!'
+                    : 'make3d finished', 9000);
+        } else if (s.timed_out && s.wrote_files) {
+          // the watchdog stopped it while polishing, but the model landed —
+          // that is a finished build, not a failure
+          await reloadModel(null);
+          buildFx.reveal();
+          toast(kid ? 'Pick a color, then tap a part to paint it!'
+                    : 'watchdog stopped a long build, but the model was already exported', 9000);
+        } else {
+          buildFx.hide();
+          if (s.timed_out) {
+            toast(kid ? '🙈 The robot took too long — let’s try again!'
+                      : 'make3d hit the 18-minute watchdog with nothing exported — try again', 12000);
+          } else {
+            toast(kid ? '🙈 It got stuck — go ask a grown-up!'
+                      : `make3d failed (exit ${s.exit}): …${(s.log_tail || '').slice(-300)}`, 12000);
+          }
+        }
+      } else {
+        $('build-banner').hidden = true;
+        if (buildFx.active) buildFx.hide(); // stale FX (e.g. server restarted)
+      }
+    }
+    lastBuild = { project, state: s.state };
+  } catch { /* poll again */ }
+}
+setInterval(checkBuild, 3000);
+
 async function refreshProjectList(selectName) {
   const { projects } = await api('/api/projects');
   const sel = $('project-select');
-  sel.innerHTML = projects.map((p) =>
+  sel.innerHTML = projects.filter((p) => p.name !== LIB).map((p) =>
     `<option value="${p.name}">${p.name}${p.has_model ? '' : ' (empty)'}</option>`).join('');
   sel.onchange = () => selectProject(sel.value);
   const want = selectName || new URLSearchParams(location.search).get('project');
@@ -418,3 +951,6 @@ async function refreshProjectList(selectName) {
   else $('stats-body').textContent = 'no projects yet';
 }
 refreshProjectList();
+
+// dev hook: lets tooling (and future debugging) poke the module from the console
+window.studio = { buildFx, reloadModel, selectProject, get project() { return project; } };

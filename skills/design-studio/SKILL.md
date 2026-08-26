@@ -80,3 +80,26 @@ fits-295³ badge, volume. If watertight shows **NO**, fix the mesh before any sl
   `--port <n>` and give the user the adjusted link.
 - Don't leave test copies as `model.stl` when the session's real work lives elsewhere;
   the live model should always be the thing the user is iterating on.
+
+## The kid flow and the generate/make3d API (added 2026-08-25)
+
+The studio is now also the front-end for the kids' "ask → picture → 3D → paint → print"
+loop. What agents need to know:
+
+- `POST /api/projects/<n>/generate` `{"subject": "...", "provider": "auto|nano|comfy",
+  "style": "turnaround|chip"}` — writes candidate images into `refs/`. `nano` is Nano
+  Banana (`gemini-2.5-flash-image`, key in `$GEMINI_API_KEY` or
+  `~/.config/3d-prints/gemini_key`); `comfy` is the local ComfyUI probed on **ports
+  8000/8188/8189** — one known install runs on **8000**, and comfy-cli's `running: false` is not
+  authoritative about it.
+- `POST /api/projects/<n>/make3d` `{"image": "<refs file>"}` — spawns a headless
+  `claude -p` in this repo that builds `design.py` → `model.stl` **and parts/*.stl split
+  by colour region + parts/parts.json**. If YOU are that spawned instance: the split into
+  paintable parts is not optional — a merged mesh cannot be painted in the studio.
+- `POST /api/projects/<n>/colors` `{"part.stl": "#hex"}` — how the paint UI persists;
+  `parts/parts.json` maps part file → display colour. **`parts/meta.json` is the print
+  contract** (coin_board keeps its colour-change data there) — never write colours into
+  meta.json or metadata into parts.json.
+- `POST /api/server/restart` — the server re-execs itself; use after editing server.py.
+- Part positions in `parts/` are display-only (the slicer re-arranges) — lay parts out
+  side by side rather than letting them overlap at the origin.

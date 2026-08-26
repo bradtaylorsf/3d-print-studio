@@ -16,6 +16,7 @@
   <select id="project-select" title="Project"></select>
   <button id="new-project-btn" title="Create a new project folder">+ new</button>
   <button id="url-btn" title="Import an image or STL from a public URL into this project">🔗 url</button>
+  <button id="gen-btn" title="Generate pictures of a new idea">✨ <span id="gen-btn-label">generate</span></button>
   <div class="group" id="view-buttons">
     <button data-view="front" title="Front (−Y)">F</button>
     <button data-view="back" title="Back (+Y)">B</button>
@@ -35,33 +36,103 @@
     </select>
     <input type="range" id="clip-pos" min="0" max="300" value="150" step="1" disabled>
   </div>
-  <div id="swatches" title="Paint the model"></div>
-  <button id="capture-btn" title="Save a screenshot into the project's refs/ folder">📸 capture</button>
+  <div id="swatches" title="Pick a color, then tap a part of the model"></div>
+  <button id="capture-btn" title="Save a screenshot into the project's refs/ folder">📸</button>
   <button id="slice-btn" title="Open the displayed model in Creality Print">🖨 slice</button>
   <button id="kid-btn" title="Toggle kid mode — big buttons, simple controls">🧸</button>
   <span id="reload-dot" title="watching for changes">●</span>
 </header>
 
+<!-- 🧸 kid home: the pictures ARE the interface -->
+<div id="kid-home" hidden>
+  <div id="kid-home-grid"></div>
+</div>
+
 <main id="layout">
   <div id="viewport"><canvas id="canvas"></canvas>
+    <button id="kid-back" hidden>⬅ Pictures</button>
     <div id="drop-hint">drop images (→ refs) or STL/3MF files (→ source) anywhere</div>
     <div id="toast"></div>
+    <div id="view-banner" hidden>
+      <span id="view-banner-label"></span>
+      <button id="view-banner-back">⬅ back to live model</button>
+    </div>
+    <div id="build-banner" hidden>
+      <span class="spin">🤖</span> <span id="build-banner-text">Building your 3D…</span>
+      <button id="build-cancel" title="Stop the build">✕</button>
+    </div>
     <div id="legend">drag&thinsp;=&thinsp;orbit &nbsp;·&nbsp; shift-drag / right-drag / arrows&thinsp;=&thinsp;pan &nbsp;·&nbsp; scroll&thinsp;=&thinsp;zoom &nbsp;·&nbsp; double-click&thinsp;=&thinsp;re-center</div>
-    <div id="legend-kid">🖱️ drag to spin it &nbsp;·&nbsp; scroll to get closer &nbsp;·&nbsp; 📸 takes a picture!</div>
+    <div id="legend-kid">🖱️ drag to spin it · pick a color, tap a part to paint it!</div>
+    <button id="kid-print-btn" hidden>🖨️ Send to 3D printer!</button>
   </div>
-  <img id="ref-viewer" alt="reference" hidden>
+  <div id="ref-pane" hidden>
+    <img id="ref-viewer" alt="reference">
+    <button id="ref-close" title="Close the picture">✕</button>
+    <button id="ref-coin">🪙 Make my coin!</button>
+    <button id="ref-make3d">🤖 Make me 3D</button>
+  </div>
 </main>
 
 <aside id="sidebar">
+  <section id="creations" hidden>
+    <h3>my stuff <span class="hint">(tap to visit)</span></h3>
+    <div id="creations-strip"></div>
+  </section>
   <section id="stats">
     <h3>model</h3>
     <div id="stats-body">no model</div>
   </section>
+  <section id="files">
+    <h3>3d files <span class="hint">(click to view)</span></h3>
+    <div id="files-list">none yet</div>
+  </section>
   <section id="refs">
-    <h3>refs <span class="hint">(drag images onto the page)</span></h3>
+    <h3>picture library <span class="hint">(tap one → make it 3D · drag images here to add)</span></h3>
     <div id="refs-strip"></div>
   </section>
 </aside>
+
+<!-- ✨ wizard: ask → draw → pick -->
+<div id="wizard" hidden>
+  <div id="wizard-card">
+    <button id="wizard-close">✕</button>
+    <div id="wiz-ask">
+      <h2>What do you want to make?</h2>
+      <input id="wiz-input" placeholder="a friendly dragon…" autocomplete="off">
+      <div class="wiz-row">
+        <button id="wiz-go" class="big-btn">🎨 Draw it!</button>
+      </div>
+      <div class="wiz-row" id="wiz-provider-row">
+        <label class="chk"><input type="radio" name="prov" value="auto" checked> auto</label>
+        <label class="chk"><input type="radio" name="prov" value="nano"> nano banana</label>
+        <label class="chk"><input type="radio" name="prov" value="comfy"> local comfy</label>
+      </div>
+    </div>
+    <div id="wiz-busy" hidden>
+      <div id="wiz-busy-emoji" class="spin">🎨</div>
+      <h2 id="wiz-busy-text">Drawing your pictures…</h2>
+    </div>
+    <div id="wiz-pick" hidden>
+      <h2>Pick your favorite!</h2>
+      <div id="wiz-grid"></div>
+      <div class="wiz-row">
+        <button id="wiz-coin" class="big-btn" disabled>🪙 Make my coin!</button>
+        <button id="wiz-make3d" disabled>🤖 Make me 3D</button>
+        <button id="wiz-more">🎨 More pictures</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 🎉 after "send to printer" -->
+<div id="grownup-overlay" hidden>
+  <div id="grownup-card">
+    <div class="party">🎉</div>
+    <h2>Sent to the 3D printer!</h2>
+    <p>Go get a grown-up to help you from here.</p>
+    <button id="grownup-ok" class="big-btn">OK!</button>
+  </div>
+</div>
 
 <script type="module" src="/static/app.js"></script>
 </body>

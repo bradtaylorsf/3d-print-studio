@@ -141,10 +141,11 @@ not a long preamble.
 
 ## Skills available in this project
 
-These live in `skills/` in the project root. Claude should **read the relevant `SKILL.md`**
-when a task matches. To make them auto-load as first-class skills, move the `skills/` folder
-contents into `.claude/skills/` (e.g. `.claude/skills/k2-slicing/SKILL.md`) — same files, just
-the location Claude Code/Cowork scans automatically.
+These live in `skills/` in the project root and are **symlinked into `.claude/skills/`**
+(done 2026-08-25), so every session in this repo — interactive or a headless spawn like the
+studio's Make-me-3D builds — auto-loads them as first-class skills. Edit the files under
+`skills/`; the symlinks follow. A new skill needs its symlink added:
+`ln -s ../../skills/<name> .claude/skills/<name>`.
 
 - **k2-slicing** — Creality Print 7.1.1.4472 settings & profiles for the K2, including the
   multi-color CFS workflow. Use when prepping slice settings or producing a slicing plan.

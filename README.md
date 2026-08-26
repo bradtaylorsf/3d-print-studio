@@ -52,10 +52,28 @@ launch it from Spotlight/Alfred; it starts the server if needed and opens the pa
 
 ### Kid mode 🧸
 
-Click the **🧸** button (or open `http://localhost:8765/?kid=1`) and the UI drops to
-big-button basics: spin, zoom, **FIT me!**, paint the model with color dots, and a giant
-📸. Great for kids steering a design while a grown-up (or Claude) drives the geometry.
-Click 🧸 again for the full controls. The choice sticks per browser.
+Click the **🧸** button (or open `http://localhost:8765/?kid=1`) and the UI becomes the
+kid flow — big buttons, no jargon:
+
+1. **✨ I want…** — they say what they want, the studio draws it (Nano Banana if a key
+   is present, else the local ComfyUI): a turnaround sheet, three views of a chunky toy
+   version, two or three candidates to choose from.
+2. **Pick your favorite** — tap a picture.
+3. **✨ Make me 3D!** — a headless Claude instance builds `design.py` → `model.stl` from
+   the chosen image, split into colourable parts. A banner counts while the robot works;
+   the model hot-loads into the viewer when it lands.
+4. **Paint it** — pick a color dot, tap a part. Colors persist to `parts/parts.json`.
+5. **🖨️ Send to 3D printer!** — opens the model in Creality Print, then tells them:
+   *"Go get a grown-up to help you from here."*
+
+Grown-up mode keeps the full controls, plus a **3d files** browser in the sidebar (click
+any parts/final/source STL to view it, ⬅ back to live), a ✕ on the image pane, and the
+same ✨ generate / 🤖 make-3D buttons.
+
+**Nano Banana:** put a Gemini API key in `$GEMINI_API_KEY` or
+`~/.config/3d-prints/gemini_key` (one line, the key). Without it, generation falls back
+to the local ComfyUI automatically (Z-Image Turbo, ~30 s for two candidates — ComfyUI
+must be running; the studio probes ports 8000/8188/8189).
 
 ## Getting started
 
