@@ -51,6 +51,7 @@
 <main id="layout">
   <div id="viewport"><canvas id="canvas"></canvas>
     <button id="kid-back" hidden>⬅ Pictures</button>
+    <div id="kind-toggle" hidden></div>
     <div id="drop-hint">drop images (→ refs) or STL/3MF files (→ source) anywhere</div>
     <div id="toast"></div>
     <div id="view-banner" hidden>
@@ -68,6 +69,8 @@
   <div id="ref-pane" hidden>
     <img id="ref-viewer" alt="reference">
     <button id="ref-close" title="Close the picture">✕</button>
+    <button id="ref-archive" title="Archive this picture (builds are kept)" hidden>🗂</button>
+    <div id="ref-builds"></div>
     <button id="ref-coin">🪙 Make my coin!</button>
     <button id="ref-make3d">🤖 Make me 3D</button>
   </div>

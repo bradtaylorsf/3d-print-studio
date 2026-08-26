@@ -22,7 +22,14 @@ Endpoints:
     POST /api/projects/<n>/generate         {"subject", "provider"?, "style"?} -> images into refs/
     POST /api/projects/<n>/make3d           {"image": "refs/x.png"} -> spawn Claude to build the model
     GET  /api/projects/<n>/make3d           status of the running/last build
+    POST /api/projects/<n>/coin             {"image": "refs/x.png"} -> traced multi-colour coin
+    POST /api/projects/<n>/archive          move the project to projects/.archive/
     POST /api/projects/<n>/colors           {"<part file>": "#hex", ...} -> parts/parts.json
+    GET  /api/library                       picture pool; each image lists its builds
+                                            [{project, kind: coin|toy, has_model}] —
+                                            one picture can have a coin AND a toy;
+                                            building the same kind again = redo in place
+    POST /api/library/archive               {"image": "<file>"} -> projects/.archive/library_refs/
 
 Image generation ("generate") providers:
     nano   Google Nano Banana (gemini-2.5-flash-image). Needs a key in
@@ -414,12 +421,29 @@ Requirements:
 """
 
 
+def claude_bin():
+    """Resolve the claude CLI. $STUDIO_CLAUDE_BIN, then PATH, then the Claude
+    desktop app's bundled copy (newest version) — a machine running Claude
+    Code through the desktop app has no standalone `claude` on PATH at all."""
+    import glob
+    import shutil
+    b = os.environ.get("STUDIO_CLAUDE_BIN") or shutil.which("claude")
+    if b:
+        return b
+    cands = glob.glob(os.path.expanduser(
+        "~/Library/Application Support/Claude/claude-code/*/claude.app/Contents/MacOS/claude"))
+    return max(cands, key=os.path.getmtime) if cands else None
+
+
 def start_make3d(pname, pdir, image):
     import subprocess
     with _jobs_lock:
         job = _jobs.get(pname)
         if job and job["proc"].poll() is None:
             return {"error": "a build is already running for this project"}
+        binpath = claude_bin()
+        if not binpath:
+            return {"error": "claude CLI not found — install it or set STUDIO_CLAUDE_BIN"}
         log_path = os.path.join(pdir, ".make3d.log")
         log = open(log_path, "w")
         prompt = MAKE3D_PROMPT.format(repo=REPO, project=pname, image=image)
@@ -428,13 +452,13 @@ def start_make3d(pname, pdir, image):
             # A build job needs none, they slow startup, and a hung MCP
             # handshake stalled a build for 27 minutes once.
             proc = subprocess.Popen(
-                ["claude", "-p", prompt, "--permission-mode", "bypassPermissions",
+                [binpath, "-p", prompt, "--permission-mode", "bypassPermissions",
                  "--strict-mcp-config", "--model", MAKE3D_MODEL],
                 cwd=REPO, stdout=log, stderr=subprocess.STDOUT,
                 stdin=subprocess.DEVNULL, start_new_session=True)
         except FileNotFoundError:
             log.close()
-            return {"error": "claude CLI not found on PATH"}
+            return {"error": f"could not run {binpath}"}
         job = {"proc": proc, "log": log_path, "image": image,
                "started": __import__("time").time(), "timed_out": False}
 
@@ -471,39 +495,78 @@ def make3d_status(pname):
             "log_tail": tail}
 
 
-def creation_project(src, image):
-    """Every build gets its OWN project, named after the image, so creations
-    never overwrite each other (a dragon build once ate the rocket). Same
-    image again -> same project (a retry); fresh image -> slug_2, slug_3...
-    Returns (name, dir, image_path) with the image copied in."""
-    slug = re.sub(r"^gen_", "", os.path.splitext(image)[0])
-    slug = re.sub(r"_\d+$", "", slug)
-    slug = re.sub(r"[^a-z0-9_]", "", slug.lower()).strip("_")[:40] or "creation"
-    target, n = slug, 2
-    while True:
-        tdir = os.path.join(PROJECTS, target)
-        if not os.path.isdir(tdir):
-            break
-        has_img = os.path.isfile(os.path.join(tdir, "refs", image))
+ARCHIVE = os.path.join(PROJECTS, ".archive")   # hidden from listings and the API
+
+
+def creation_meta(pdir):
+    """{"image": ..., "kind": "coin"|"toy"} for a creation project, {} if none."""
+    try:
+        with open(os.path.join(pdir, ".creation.json")) as f:
+            m = json.load(f)
+        return m if isinstance(m, dict) else {}
+    except Exception:
+        return {}
+
+
+def detect_kind(pdir):
+    """Best guess for a legacy creation project with no .creation.json."""
+    coin = os.path.isfile(os.path.join(pdir, "parts", "coin_body.stl"))
+    toy = os.path.isfile(os.path.join(pdir, "design.py"))
+    if coin and toy:
+        return "mixed"      # the old one-project-per-image collision
+    return "coin" if coin else ("toy" if toy else None)
+
+
+def creation_project(src, image, kind):
+    """Every build gets its OWN project per (image, kind), so creations never
+    overwrite each other (a dragon build once ate the rocket) and one picture
+    can have BOTH a coin and a toy. Same image+kind again -> the same project
+    back — that IS the redo. `.creation.json` records the exact source image
+    and kind; legacy projects (empty `.creation` marker, no json) are matched
+    by their image copy + content, never a hand-built project (non-empty
+    marker). Returns (name, dir, image_path)."""
+    import shutil
+    for name in sorted(os.listdir(PROJECTS)):
+        tdir = os.path.join(PROJECTS, name)
         marker = os.path.join(tdir, ".creation")
-        has_img = os.path.isfile(os.path.join(tdir, "refs", image))
-        # empty marker = auto-created coin/build project: retry in place.
-        # Non-empty marker = LEGACY, a hand-built model
-        # that a coin rebuild must NEVER overwrite: fall through to slug_2.
-        if os.path.isfile(marker) and os.path.getsize(marker) == 0 and has_img:
-            with _jobs_lock:
-                j = _jobs.get(target)
-            if not (j and j["proc"].poll() is None):
-                break
-        target = f"{slug}_{n}"
+        if not os.path.isdir(tdir) or not os.path.isfile(marker):
+            continue
+        meta = creation_meta(tdir)
+        if meta:
+            match = meta.get("image") == image and meta.get("kind") == kind
+        else:
+            match = (os.path.getsize(marker) == 0
+                     and os.path.isfile(os.path.join(tdir, "refs", image))
+                     and detect_kind(tdir) == kind)   # "mixed" never matches
+        if not match:
+            continue
+        with _jobs_lock:
+            j = _jobs.get(name)
+        if j and j["proc"].poll() is None:
+            continue                       # busy — a fresh project instead
+        with open(os.path.join(tdir, ".creation.json"), "w") as f:
+            json.dump({"image": image, "kind": kind}, f)   # backfill legacy
+        dst = os.path.join(tdir, "refs", image)
+        if not os.path.isfile(dst):
+            shutil.copyfile(src, dst)
+        return name, tdir, dst
+
+    # fresh project: <image slug>_<kind>, numbered on collision. The slug keeps
+    # the image's trailing _N — stripping it once cross-wired gen_a_shark.png
+    # and gen_a_shark_2.png into each other's projects.
+    slug = re.sub(r"^gen_", "", os.path.splitext(image)[0])
+    slug = re.sub(r"[^a-z0-9_]", "", slug.lower()).strip("_")[:40] or "creation"
+    target, n = f"{slug}_{kind}", 2
+    while os.path.isdir(os.path.join(PROJECTS, target)):
+        target = f"{slug}_{kind}_{n}"
         n += 1
     tdir = os.path.join(PROJECTS, target)
     os.makedirs(os.path.join(tdir, "refs"), exist_ok=True)
     open(os.path.join(tdir, ".creation"), "w").close()
+    with open(os.path.join(tdir, ".creation.json"), "w") as f:
+        json.dump({"image": image, "kind": kind}, f)
     dst = os.path.join(tdir, "refs", image)
-    if not os.path.isfile(dst):
-        import shutil
-        shutil.copyfile(src, dst)
+    shutil.copyfile(src, dst)
     return target, tdir, dst
 
 
@@ -615,43 +678,73 @@ class Handler(BaseHTTPRequestHandler):
                 + sys.argv[1:])).start()
             return None
 
-        # GET /api/library — the picture pool, each image resolved to the
-        # creation project it became (or null). One picture -> one model.
+        # GET /api/library — the picture pool, each image with the list of
+        # builds made from it (a picture can have a coin AND a toy).
         if method == "GET" and parts[:2] == ["api", "library"] and len(parts) == 2:
             lib = os.path.join(PROJECTS, "library")
             imgs = list_refs(lib)
-            # index creation projects once: name -> (refs set, has_model, ref_count)
-            idx = {}
-            for name in os.listdir(PROJECTS):
+            builds = {}    # image file -> [{project, kind, has_model}]
+            for name in sorted(os.listdir(PROJECTS)):
                 pd = os.path.join(PROJECTS, name)
-                if name == "library" or not os.path.isdir(pd):
+                marker = os.path.join(pd, ".creation")
+                if name == "library" or not os.path.isdir(pd) \
+                        or not os.path.isfile(marker):
                     continue
-                if not os.path.isfile(os.path.join(pd, ".creation")):
-                    continue
-                refs = {r["file"] for r in list_refs(pd)}
+                meta = creation_meta(pd)
+                img, kind = meta.get("image"), meta.get("kind")
                 has_model = bool(model_parts(pd)[0])
-                idx[name] = (refs, has_model, len(refs))
+                if not meta and os.path.getsize(marker) != 0:
+                    # hand-built project:
+                    # it belongs to every library picture it keeps a reference
+                    # copy of. Association only — `protected` builds are never
+                    # reused, redone, or overwritten by the studio.
+                    for r in list_refs(pd):
+                        builds.setdefault(r["file"], []).append({
+                            "project": name,
+                            "kind": detect_kind(pd) or "model",
+                            "has_model": has_model,
+                            "protected": True,
+                        })
+                    continue
+                if not img:
+                    # legacy auto-created project: exact by the image copy it
+                    # holds, and only when one generated image identifies it.
+                    gen = [r["file"] for r in list_refs(pd)
+                           if r["file"].startswith("gen_")]
+                    if len(gen) != 1:
+                        continue
+                    img = gen[0]
+                builds.setdefault(img, []).append({
+                    "project": name,
+                    "kind": kind or detect_kind(pd) or "model",
+                    "has_model": has_model,
+                    "protected": False,
+                })
             out = []
             for im in imgs:
-                f = im["file"]
-                slug = re.sub(r"^gen_", "", os.path.splitext(f)[0])
-                slug = re.sub(r"_\d+$", "", slug)
-                slug = re.sub(r"[^a-z0-9_]", "", slug.lower()).strip("_")
-                proj = None
-                # exact slug (or slug_N) match first, then most-specific holder
-                for cand, (refs, hm, _) in idx.items():
-                    if f in refs and hm and (cand == slug or
-                                             re.fullmatch(re.escape(slug) + r"_\d+", cand)):
-                        proj = cand
-                        break
-                if proj is None:
-                    holders = [(n, c) for n, (refs, hm, c) in idx.items()
-                               if f in refs and hm]
-                    if holders:
-                        proj = min(holders, key=lambda t: t[1])[0]
-                out.append({"file": f, "mtime": im["mtime"], "project": proj,
-                            "url": f"/api/projects/library/refs/{f}"})
+                b = builds.get(im["file"], [])
+                out.append({
+                    "file": im["file"], "mtime": im["mtime"], "builds": b,
+                    # `project`: first build with a model — older callers
+                    "project": next((x["project"] for x in b if x["has_model"]), None),
+                    "url": f"/api/projects/library/refs/{im['file']}"})
             return self.send_json({"images": out})
+
+        # POST /api/library/archive {"image": "<file>"} — move a picture out
+        # of the pool into projects/.archive/library_refs/ (reversible by hand).
+        if method == "POST" and parts[:2] == ["api", "library"] \
+                and len(parts) == 3 and parts[2] == "archive":
+            try:
+                image = os.path.basename(json.loads(self.read_body())["image"])
+            except Exception:
+                return self.send_error_json(400, 'body must be JSON: {"image": ...}')
+            src = os.path.join(PROJECTS, "library", "refs", image)
+            if not safe_name(image) or not os.path.isfile(src):
+                return self.send_error_json(404, f"library/refs/{image} does not exist")
+            import shutil
+            dest = unique_path(os.path.join(ARCHIVE, "library_refs"), image)
+            shutil.move(src, dest)
+            return self.send_json({"archived": os.path.relpath(dest, REPO)})
 
         if parts[0] != "api" or len(parts) < 2 or parts[1] != "projects":
             return self.send_error_json(404, "unknown route")
@@ -878,7 +971,14 @@ class Handler(BaseHTTPRequestHandler):
             if not safe_name(image) or not os.path.isfile(src):
                 return self.send_error_json(404, f"refs/{image} does not exist")
 
-            target, tdir, dst = creation_project(src, image)
+            target, tdir, dst = creation_project(src, image, "toy")
+            # a redo: clear stale part STLs so old and new bodies never mix
+            # (model.stl stays visible until the build overwrites it)
+            pparts = os.path.join(tdir, "parts")
+            if os.path.isdir(pparts):
+                for f in os.listdir(pparts):
+                    if f.lower().endswith(".stl"):
+                        os.remove(os.path.join(pparts, f))
             out = start_make3d(target, tdir, image)
             if "error" not in out:
                 out["project"] = target
@@ -895,7 +995,14 @@ class Handler(BaseHTTPRequestHandler):
             src = os.path.join(pdir, "refs", image)
             if not safe_name(image) or not os.path.isfile(src):
                 return self.send_error_json(404, f"refs/{image} does not exist")
-            target, tdir, dst = creation_project(src, image)
+            target, tdir, dst = creation_project(src, image, "coin")
+            # a redo: drop the old coin parts so a smaller retrace can't leave
+            # stale colour regions behind
+            pparts = os.path.join(tdir, "parts")
+            if os.path.isdir(pparts):
+                for f in os.listdir(pparts):
+                    if f.startswith("coin_") and f.lower().endswith(".stl"):
+                        os.remove(os.path.join(pparts, f))
             import subprocess
             r = subprocess.run(
                 [os.path.join(REPO, ".venv", "bin", "python"),
@@ -931,6 +1038,21 @@ class Handler(BaseHTTPRequestHandler):
                 json.dump(current, f, indent=2)
             return self.send_json({"saved": cfg and os.path.relpath(cfg, REPO),
                                    "colors": current})
+
+        if sub == "archive":
+            # move the whole project into projects/.archive/ (reversible by
+            # hand). Infrastructure projects are refused.
+            if pname in ("library", "coin_board"):
+                return self.send_error_json(
+                    400, f"'{pname}' is infrastructure — not archivable")
+            with _jobs_lock:
+                j = _jobs.get(pname)
+            if j and j["proc"].poll() is None:
+                return self.send_error_json(409, "a build is running for this project")
+            import shutil
+            dest = unique_path(ARCHIVE, pname)
+            shutil.move(pdir, dest)
+            return self.send_json({"archived": os.path.relpath(dest, REPO)})
 
         if sub == "capture":
             body = self.read_body()

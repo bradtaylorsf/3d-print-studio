@@ -49,7 +49,11 @@ Everything that matters travels with the repo — the studio, every project, the
 library, the creations, the skills. `git clone` + `./start.sh` is the whole setup. The
 few things that are per-machine:
 
-- **Make-me-3D builds** need the `claude` CLI on PATH (they spawn a headless session).
+- **Make-me-3D builds** spawn a headless `claude -p` session. The studio finds the CLI
+  on PATH, via `$STUDIO_CLAUDE_BIN`, or bundled inside the Claude desktop app — but the
+  CLI must be **logged in for headless use** on this machine: run `claude` in any
+  terminal once and `/login`. (The desktop app being signed in is NOT enough — a build
+  that dies instantly with "Not logged in" in `.make3d.log` means exactly this.)
 - **Picture generation** needs either a Gemini key in `$GEMINI_API_KEY` or
   `~/.config/3d-prints/gemini_key` (Nano Banana), or a local ComfyUI answering on
   port 8000/8188 (Z-Image Turbo stack). With neither, the library and coins still
@@ -78,6 +82,14 @@ kid flow — big buttons, no jargon:
 4. **Paint it** — pick a color dot, tap a part. Colors persist to `parts/parts.json`.
 5. **🖨️ Send to 3D printer!** — opens the model in Creality Print, then tells them:
    *"Go get a grown-up to help you from here."*
+
+One picture can have **both a coin and a toy** — each build gets its own project
+(`<image>_coin` / `<image>_toy`), and the picture's tile shows a 🪙/🤖 badge per build.
+Open a picture and the pane lists its builds (*see my coin*, *see my toy*); the make
+buttons flip to **Redo** when that kind already exists and rebuild it in place. In
+grown-up mode the pane also has 🗂 archive buttons — for the picture or any of its
+builds — which move things to `projects/.archive/` (nothing is ever deleted; move it
+back by hand to restore).
 
 Grown-up mode keeps the full controls, plus a **3d files** browser in the sidebar (click
 any parts/final/source STL to view it, ⬅ back to live), a ✕ on the image pane, and the

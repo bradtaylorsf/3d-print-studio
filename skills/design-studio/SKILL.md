@@ -96,6 +96,15 @@ loop. What agents need to know:
   `claude -p` in this repo that builds `design.py` → `model.stl` **and parts/*.stl split
   by colour region + parts/parts.json**. If YOU are that spawned instance: the split into
   paintable parts is not optional — a merged mesh cannot be painted in the studio.
+- **Builds are per (image, kind)** — one picture can have BOTH a coin (`.../coin`) and a
+  toy (`.../make3d`), each in its own project (`<image>_coin` / `<image>_toy`, recorded in
+  the project's `.creation.json`). Requesting the same kind again reuses that project —
+  that IS the redo (stale part STLs are cleared first). `GET /api/library` lists every
+  picture with its `builds: [{project, kind, has_model}]`.
+- **Archive, never delete**: `POST /api/library/archive` `{"image": ...}` retires a
+  picture, `POST /api/projects/<n>/archive` a whole project — both move things into
+  `projects/.archive/` (hidden from the API; restore by moving the folder back).
+  `library` and `coin_board` refuse to archive.
 - `POST /api/projects/<n>/colors` `{"part.stl": "#hex"}` — how the paint UI persists;
   `parts/parts.json` maps part file → display colour. **`parts/meta.json` is the print
   contract** (coin_board keeps its colour-change data there) — never write colours into

@@ -30,12 +30,19 @@ button:hover, select:hover { border-color: var(--accent); }
 #reload-dot.err { color: var(--bad); }
 #gen-btn { border-color: var(--pop); }
 
-#layout { grid-area: main; display: grid; grid-template-columns: 1fr; min-width: 0; }
+/* min-height: 0 everywhere in this chain — without it, a tall ref image (or
+   the canvas's own pixel buffer) props the 1fr row taller than the window,
+   the canvas centre slips below the fold, and every model renders "a little
+   too low" until the page is reloaded. body clips it, so it LOOKS subtle. */
+#layout { grid-area: main; display: grid; grid-template-columns: 1fr; min-width: 0; min-height: 0; }
 #layout.split { grid-template-columns: 1fr 1fr; }
-#viewport { position: relative; min-width: 0; }
+#viewport { position: relative; min-width: 0; min-height: 0; overflow: hidden; }
 #canvas { width: 100%; height: 100%; display: block; }
 
-#ref-pane { position: relative; min-width: 0; border-left: 1px solid var(--edge); background: #101216; }
+#ref-pane {
+  position: relative; min-width: 0; min-height: 0; overflow: hidden;
+  border-left: 1px solid var(--edge); background: #101216;
+}
 #ref-viewer { width: 100%; height: 100%; object-fit: contain; display: block; }
 #ref-close {
   position: absolute; top: 10px; right: 10px; font-size: 18px; line-height: 1;
@@ -48,6 +55,43 @@ button:hover, select:hover { border-color: var(--accent); }
 #ref-coin { left: 50%; transform: translateX(-108%); background: var(--pop); color: #1a1a1f; font-weight: 700; }
 #ref-make3d { left: 50%; transform: translateX(8%); background: var(--accent); }
 #ref-coin:hover, #ref-make3d:hover { filter: brightness(1.1); }
+
+#ref-archive {
+  position: absolute; top: 10px; right: 62px; font-size: 16px; line-height: 1;
+  padding: 9px 12px; border-radius: 10px; background: rgba(20,22,28,.85); opacity: .8;
+}
+#ref-archive:hover { opacity: 1; border-color: var(--bad); }
+#ref-archive[hidden] { display: none; }
+#ref-builds {
+  position: absolute; bottom: 68px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 10px; z-index: 2;
+}
+.ref-build { display: flex; align-items: center; gap: 4px; }
+.ref-build > button {
+  border: 1px solid var(--edge); border-radius: 10px; padding: 7px 13px;
+  background: rgba(20,22,28,.85); font-size: 14px;
+}
+.ref-build.here > button:first-child { border-color: var(--pop); }
+.ref-build .zap { font-size: 12px; padding: 7px 8px; opacity: .65; }
+.ref-build .zap:hover { opacity: 1; border-color: var(--bad); }
+body.kid #ref-archive, body.kid .ref-build .zap { display: none; }
+body.kid .ref-build > button { font-size: 17px; padding: 10px 16px; }
+
+/* the same picture as coin and toy: persistent switch on the viewer */
+#kind-toggle {
+  position: absolute; top: 12px; left: 12px; z-index: 7;
+  display: flex; gap: 6px;
+}
+#kind-toggle[hidden] { display: none; }
+#kind-toggle button {
+  border: 1px solid var(--edge); border-radius: 10px; padding: 7px 13px;
+  background: rgba(20,22,28,.85); font-size: 14px;
+}
+#kind-toggle button.here {
+  border-color: var(--pop); background: var(--pop); color: #1a1a1f; font-weight: 700;
+}
+body.kid #kind-toggle { top: 74px; }
+body.kid #kind-toggle button { font-size: 17px; padding: 10px 16px; border-radius: 12px; }
 
 #drop-hint {
   position: absolute; inset: 0; display: none; align-items: center; justify-content: center;

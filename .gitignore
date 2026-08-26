@@ -42,3 +42,5 @@ build/
 *.pem
 *.key
 
+# studio archive (🗂 in the UI moves retired pictures/builds here)
+projects/.archive/

@@ -119,30 +119,45 @@ function frameSubject() {
   return modelGroup;
 }
 function frameModel(dir) {
+  resize();   // the pane may have just split/unsplit — frame for the REAL aspect
   const box = new THREE.Box3().setFromObject(frameSubject());
   if (box.isEmpty()) return;
   const c = box.getCenter(new THREE.Vector3());
   const r = Math.max(box.getSize(new THREE.Vector3()).length() / 2, 20);
+  // distance that fits the bounding sphere in BOTH fields of view — a fixed
+  // multiplier overflowed wide models whenever the split view narrowed the
+  // canvas, which read as "FIT is broken / the model sits off-centre"
+  const fovV = THREE.MathUtils.degToRad(camera.fov) / 2;
+  const fovH = Math.atan(Math.tan(fovV) * camera.aspect);
+  const dist = 1.15 * r / Math.sin(Math.min(fovV, fovH));
   controls.target.copy(c);
-  camera.position.copy(c).add(dir.normalize().multiplyScalar(r * 2.4));
+  camera.position.copy(c).add(dir.normalize().multiplyScalar(dist));
 }
 const fitCamera = () => frameModel(new THREE.Vector3(1, -1, 0.8));
 
-let loading = false;
+// Reloads race: switching projects mid-load once let the OLD project's parts
+// finish loading into the cleared scene (and the new project's reload was
+// swallowed by a re-entry guard) — the viewer then framed someone else's
+// meshes. Generations fix it: the newest call owns the scene, older in-flight
+// loops notice and stand down, pulling any straggler mesh back out.
+let loadGen = 0;
+let loadBusy = false;   // the status poll DEFERS to an in-flight reload rather
+                        // than preempting it — a preempted pass restarts from
+                        // scratch, and a 1 s poll can starve it forever
 async function reloadModel(changed) {
-  if (loading) return;
-  loading = true;
+  const gen = ++loadGen;
+  loadBusy = true;
   const dot = $('reload-dot');
   dot.className = 'busy';
   toast('loading model…', 0);
   try {
     const manifest = await api(`/api/projects/${project}/manifest`);
+    if (gen !== loadGen) return;                    // superseded while fetching
     displayRole = manifest.role;
     const current = new Set(manifest.parts.map((p) => p.file));
     for (const [file, entry] of meshes) {
       if (!current.has(file)) {
-        modelGroup.remove(entry.mesh);
-        entry.mesh.geometry.dispose();
+        if (entry.mesh) { modelGroup.remove(entry.mesh); entry.mesh.geometry.dispose(); }
         meshes.delete(file);
       }
     }
@@ -150,6 +165,15 @@ async function reloadModel(changed) {
       if (!meshes.has(part.file)) meshes.set(part.file, { mesh: null, mtime: 0, size: -1, pendingSize: null });
       const entry = meshes.get(part.file);
       if (!changed || changed.has(part.file) || !entry.mesh) await loadPart(part, entry);
+      if (gen !== loadGen) {
+        // superseded mid-load. If the project switched under us the map was
+        // cleared, so this entry is a straggler loadPart just re-added.
+        if (entry.mesh && meshes.get(part.file) !== entry) {
+          modelGroup.remove(entry.mesh);
+          entry.mesh.geometry.dispose();
+        }
+        return;
+      }
     }
     if (firstFit && meshes.size) { fitCamera(); firstFit = false; }
     $('toast').classList.remove('show');
@@ -158,10 +182,11 @@ async function reloadModel(changed) {
     refreshInfo();
     renderFiles();
   } catch (e) {
+    if (gen !== loadGen) return;                    // aborted, not failed
     dot.className = 'err';
     toast(`load failed: ${e.message}`);
   } finally {
-    loading = false;
+    if (gen === loadGen) loadBusy = false;          // only the owner clears
   }
 }
 
@@ -223,8 +248,10 @@ setInterval(async () => {
       const entry = meshes.get(p.file);
       if (!entry) { structure = true; continue; }
       if (p.mtime !== entry.mtime) {
-        // two consecutive stable polls before fetching (avoid half-written STL)
-        if (entry.pendingSize === p.size && entry.pendingMtime === p.mtime) {
+        // two consecutive stable polls before fetching (avoid half-written
+        // STL) — and never stamp the mtime while a reload is busy, or the
+        // change would be recorded as handled without ever loading
+        if (!loadBusy && entry.pendingSize === p.size && entry.pendingMtime === p.mtime) {
           entry.mtime = p.mtime; entry.size = p.size;
           entry.pendingSize = null;
           changed.add(p.file);
@@ -233,6 +260,7 @@ setInterval(async () => {
         }
       }
     }
+    if (loadBusy) return;   // defer to the in-flight reload; re-check next tick
     if (structure) {
       // parts appeared/disappeared: seed entries so next stable poll reloads
       await reloadModel(null);
@@ -262,6 +290,7 @@ function openRef(file, url, src = LIB) {
   $('layout').classList.add('split');
   $('refs-strip').querySelectorAll('img').forEach((i) =>
     i.classList.toggle('active', i.title === file));
+  updateRefPane();
 }
 function closeRef() {
   activeRef = null;
@@ -270,7 +299,112 @@ function closeRef() {
   $('refs-strip').querySelectorAll('img').forEach((i) => i.classList.remove('active'));
 }
 $('ref-close').onclick = closeRef;
-$('ref-make3d').onclick = () => { if (activeRef) startBuild(activeRef.file, activeRef.src); };
+$('ref-make3d').onclick = () => {
+  if (!activeRef) return;
+  if (refBuilds.some((b) => b.kind === 'toy' && b.has_model && !b.protected)
+      && !confirm('Rebuild the toy from this picture? Takes ~5–8 minutes and replaces the current toy.')) return;
+  startBuild(activeRef.file, activeRef.src);
+};
+
+// The pane is the hub for one picture: its existing builds (a coin AND a toy
+// can coexist), redo, and — adult mode only — archiving.
+const KIND_EMOJI = { coin: '🪙', toy: '🤖' };
+const KIND_WORD = { coin: 'coin', toy: 'toy' };
+let refBuilds = [];             // builds of the picture the pane is showing
+async function updateRefPane() {
+  const kid = document.body.classList.contains('kid');
+  const mine = activeRef;
+  refBuilds = [];
+  $('ref-builds').innerHTML = '';
+  $('ref-coin').textContent = '🪙 Make my coin!';
+  $('ref-make3d').textContent = '🤖 Make me 3D';
+  $('ref-archive').hidden = kid || !mine || mine.src !== LIB;
+  if (!mine || mine.src !== LIB) return;
+  try {
+    const { images } = await api('/api/library');
+    if (activeRef !== mine) return;              // pane moved on meanwhile
+    refBuilds = images.find((i) => i.file === mine.file)?.builds || [];
+  } catch { return; }
+  for (const b of refBuilds) {
+    const chip = document.createElement('div');
+    chip.className = 'ref-build' + (b.project === project ? ' here' : '');
+    const open = document.createElement('button');
+    open.textContent = `${KIND_EMOJI[b.kind] || '🧊'} see my ${KIND_WORD[b.kind] || 'model'}`;
+    open.title = b.project;
+    open.onclick = async () => {
+      const url = $('ref-viewer').src;
+      if (b.project !== project) await refreshProjectList(b.project);
+      openRef(mine.file, url, mine.src);         // selectProject closed the pane
+      fitCamera();
+    };
+    chip.appendChild(open);
+    if (!kid) {
+      const zap = document.createElement('button');
+      zap.className = 'zap';
+      zap.textContent = '🗂';
+      zap.title = `Archive ${b.project} → projects/.archive/`;
+      zap.onclick = async () => {
+        if (!confirm(`Archive ${b.project}? It moves to projects/.archive/ (recoverable by hand).`)) return;
+        const r = await fetch(`/api/projects/${b.project}/archive`, { method: 'POST' });
+        const j = await r.json();
+        toast(r.ok ? `archived → ${j.archived}` : `archive failed: ${j.error}`, 6000);
+        if (r.ok && b.project === project) await refreshProjectList();
+        updateRefPane();
+        updateKindToggle();
+        renderCreations();
+        if (!$('kid-home').hidden) renderHome();
+      };
+      chip.appendChild(zap);
+    }
+    $('ref-builds').appendChild(chip);
+  }
+  // hand-built (protected) models are shown but never rebuilt in place —
+  // "Redo" only when the studio would actually reuse that project
+  if (refBuilds.some((b) => b.kind === 'coin' && b.has_model && !b.protected)) {
+    $('ref-coin').textContent = '🪙 Redo my coin';
+  }
+  if (refBuilds.some((b) => b.kind === 'toy' && b.has_model && !b.protected)) {
+    $('ref-make3d').textContent = '🤖 Redo my toy';
+  }
+}
+
+// ---------- coin/toy toggle: always visible when a picture has both --------
+async function updateKindToggle() {
+  const holder = $('kind-toggle');
+  try {
+    const { images } = await api('/api/library');
+    const im = images.find((i) => (i.builds || []).some((b) => b.project === project));
+    const builds = (im?.builds || []).filter((b) => b.has_model);
+    if (builds.length < 2) { holder.hidden = true; holder.innerHTML = ''; return; }
+    holder.innerHTML = '';
+    for (const b of builds) {
+      const btn = document.createElement('button');
+      btn.textContent = `${KIND_EMOJI[b.kind] || '🧊'} ${KIND_WORD[b.kind] || 'model'}`;
+      btn.className = b.project === project ? 'here' : '';
+      btn.title = b.project;
+      btn.onclick = () => { if (b.project !== project) selectProject(b.project); };
+      holder.appendChild(btn);
+    }
+    holder.hidden = false;
+  } catch { holder.hidden = true; }
+}
+
+$('ref-archive').onclick = async () => {
+  if (!activeRef || activeRef.src !== LIB) return;
+  const f = activeRef.file;
+  const kept = refBuilds.length
+    ? ` Its ${refBuilds.length} build${refBuilds.length > 1 ? 's' : ''} stay${refBuilds.length > 1 ? '' : 's'}.` : '';
+  if (!confirm(`Archive this picture?${kept} It moves to projects/.archive/library_refs/.`)) return;
+  const r = await fetch('/api/library/archive',
+    { method: 'POST', body: JSON.stringify({ image: f }) });
+  const j = await r.json();
+  toast(r.ok ? `archived → ${j.archived}` : `archive failed: ${j.error}`, 6000);
+  if (r.ok) {
+    closeRef();
+    renderRefs(true);
+    if (!$('kid-home').hidden) renderHome();
+  }
+};
 
 let libKey = '';
 async function renderRefs(force) {
@@ -339,11 +473,7 @@ async function viewFile(rel) {
     $('view-banner-label').textContent = `viewing ${rel}`;
     $('view-banner').hidden = false;
     $('toast').classList.remove('show');
-    const box = new THREE.Box3().setFromObject(overrideMesh);
-    const c = box.getCenter(new THREE.Vector3());
-    const r2 = Math.max(box.getSize(new THREE.Vector3()).length() / 2, 20);
-    controls.target.copy(c);
-    camera.position.copy(c).add(new THREE.Vector3(1, -1, 0.8).normalize().multiplyScalar(r2 * 2.4));
+    fitCamera();   // frameSubject() sees viewOverride — frames just this file
     renderFiles();
   } catch (e) {
     toast(`could not load ${rel}: ${e.message}`);
@@ -517,8 +647,9 @@ canvas.addEventListener('pointerup', (e) => {
 });
 
 // ---------- kid home: full-screen picture grid -----------------------------
-// The pictures ARE the interface. Tap one that already has a 3D -> see it.
-// Tap one that doesn't -> the coin is cut on the spot (~2 s) and revealed.
+// The pictures ARE the interface. Tap one that already has a 3D -> see it
+// (the corner toggle switches between its coin and its toy). Tap one that
+// doesn't -> the pane offers the choice: coin (~2 s) or toy (the robot).
 async function renderHome() {
   try {
     const { images } = await api('/api/library');
@@ -532,8 +663,10 @@ async function renderHome() {
     for (const im of images.slice().reverse()) {
       const tile = document.createElement('div');
       tile.className = 'home-tile';
+      const badges = (im.builds || []).filter((b) => b.has_model)
+        .map((b) => KIND_EMOJI[b.kind] || '🧊').join('');
       tile.innerHTML = `<img src="${im.url}" alt="">` +
-        (im.project ? '<span class="badge3d">🧊</span>' : '');
+        (badges ? `<span class="badge3d">${badges}</span>` : '');
       tile.onclick = () => openCreation(im);
       grid.appendChild(tile);
     }
@@ -543,17 +676,9 @@ async function renderHome() {
 async function openCreation(im) {
   $('kid-home').hidden = true;
   $('kid-back').hidden = !document.body.classList.contains('kid');
-  if (im.project) {
-    if (im.project !== project) await refreshProjectList(im.project);
-    openRef(im.file, im.url, LIB);
-    fitCamera();
-  } else {
-    openRef(im.file, im.url, LIB);
-    await makeCoin(im.file, LIB);      // ~2 s, ends in the reveal
-    openRef(im.file, im.url, LIB);     // selectProject closed the pane — restore
-    fitCamera();
-    renderHome();                      // it has a 🧊 badge now
-  }
+  if (im.project && im.project !== project) await refreshProjectList(im.project);
+  openRef(im.file, im.url, LIB);   // the pane is the hub: builds, make, redo
+  fitCamera();                     // AFTER the split — frame the halved canvas
 }
 
 function showHome() {
@@ -624,6 +749,7 @@ async function selectProject(name) {
   renderRefs();
   renderFiles();
   renderCreations();
+  updateKindToggle();
   checkBuild();
   const st = await api(`/api/projects/${project}/status`);
   if (st.parts.length) {
@@ -702,6 +828,7 @@ async function runGenerate() {
 
 async function makeCoin(imageFile, src = LIB) {
   const kid = document.body.classList.contains('kid');
+  const was = activeRef && activeRef.file === imageFile ? { ...activeRef } : null;
   toast(kid ? 'Cutting your coin… 🪙' : 'tracing coin…', 0);
   const r = await fetch(`/api/projects/${src}/coin`,
     { method: 'POST', body: JSON.stringify({ image: imageFile }) });
@@ -712,6 +839,9 @@ async function makeCoin(imageFile, src = LIB) {
   if (j.project !== project) await refreshProjectList(j.project);
   await reloadModel(null);
   buildFx.reveal();
+  // selectProject closed the pane — restore it so the builds/toggle stay in reach
+  if (was) openRef(was.file, `/api/projects/${was.src}/refs/${was.file}`, was.src);
+  updateKindToggle();
   toast(kid ? 'Pick a color, then tap a part to paint it!' : j.report?.split('\n')[0] || 'coin ready', 8000);
 }
 $('wiz-coin').onclick = () => {
@@ -910,6 +1040,7 @@ async function checkBuild() {
         if (s.exit === 0) {
           await reloadModel(null);          // make sure the NEW model is what pops up
           buildFx.reveal();
+          updateKindToggle();
           toast(kid ? 'Pick a color, then tap a part to paint it!'
                     : 'make3d finished', 9000);
         } else if (s.timed_out && s.wrote_files) {
@@ -917,6 +1048,7 @@ async function checkBuild() {
           // that is a finished build, not a failure
           await reloadModel(null);
           buildFx.reveal();
+          updateKindToggle();
           toast(kid ? 'Pick a color, then tap a part to paint it!'
                     : 'watchdog stopped a long build, but the model was already exported', 9000);
         } else {
@@ -953,4 +1085,5 @@ async function refreshProjectList(selectName) {
 refreshProjectList();
 
 // dev hook: lets tooling (and future debugging) poke the module from the console
-window.studio = { buildFx, reloadModel, selectProject, get project() { return project; } };
+window.studio = { buildFx, reloadModel, selectProject, camera, controls, modelGroup,
+  fitCamera, THREE, get project() { return project; } };
