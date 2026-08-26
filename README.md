@@ -43,6 +43,19 @@ That's it. First run sets up the Python environment (a few minutes); every run a
 the server and opens http://localhost:8765/ in your browser. On a Mac you can also just
 **double-click `Studio.command` in Finder** — same thing, no terminal needed.
 
+### Running on another computer
+
+Everything that matters travels with the repo — the studio, every project, the picture
+library, the creations, the skills. `git clone` + `./start.sh` is the whole setup. The
+few things that are per-machine:
+
+- **Make-me-3D builds** need the `claude` CLI on PATH (they spawn a headless session).
+- **Picture generation** needs either a Gemini key in `$GEMINI_API_KEY` or
+  `~/.config/3d-prints/gemini_key` (Nano Banana), or a local ComfyUI answering on
+  port 8000/8188 (Z-Image Turbo stack). With neither, the library and coins still
+  work — you just can't draw NEW pictures.
+- **🖨 Send to printer** opens Creality Print, so that machine needs it installed.
+
 There is no npm install, no build step, no cloud dependency — three.js is vendored in
 `studio/static/three/`.
 
