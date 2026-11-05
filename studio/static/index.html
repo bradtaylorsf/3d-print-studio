@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>3D Print Studio</title>
+<link rel="stylesheet" href="/static/style.css">
+<link rel="icon" type="image/svg+xml" href="/static/icon.svg">
+<script type="importmap">
+{ "imports": { "three": "/static/three/three.module.min.js" } }
+</script>
+</head>
+<body>
+<header id="topbar">
+  <span id="logo">◧ studio</span>
+  <select id="project-select" title="Project"></select>
+  <button id="new-project-btn" title="Create a new project folder">+ new</button>
+  <button id="url-btn" title="Import an image or STL from a public URL into this project">🔗 url</button>
+  <button id="gen-btn" title="Generate pictures of a new idea">✨ <span id="gen-btn-label">generate</span></button>
+  <div class="group" id="view-buttons">
+    <button data-view="front" title="Front (−Y)">F</button>
+    <button data-view="back" title="Back (+Y)">B</button>
+    <button data-view="left" title="Left (−X)">L</button>
+    <button data-view="right" title="Right (+X)">R</button>
+    <button data-view="top" title="Top (+Z)">T</button>
+    <button data-view="iso" title="Isometric">ISO</button>
+    <button id="fit-btn" title="Re-center the camera on the model (or double-click the canvas)">⌖ FIT</button>
+  </div>
+  <div class="group">
+    <label class="chk" title="Show the design envelope (bed minus margin)"><input type="checkbox" id="envelope-toggle"> <span id="envelope-label">255³</span></label>
+    <select id="clip-axis" title="Clip plane axis">
+      <option value="">no clip</option>
+      <option value="x">clip X</option>
+      <option value="y">clip Y</option>
+      <option value="z">clip Z</option>
+    </select>
+    <input type="range" id="clip-pos" min="0" max="260" value="130" step="1" disabled>
+  </div>
+  <div id="swatches" title="Pick a color, then tap a part of the model"></div>
+  <button id="capture-btn" title="Save a screenshot into the project's refs/ folder">📸</button>
+  <button id="slice-btn" title="Open the displayed model in your slicer">🖨 slice</button>
+  <button id="voice-btn" title="Read things out loud" hidden>🔊</button>
+  <button id="kid-btn" title="Toggle kid mode — big buttons, simple controls">🧸</button>
+  <span id="reload-dot" title="watching for changes">●</span>
+</header>
+
+<!-- 🧸 kid home: the pictures ARE the interface -->
+<div id="kid-home" hidden>
+  <div id="kid-home-grid"></div>
+</div>
+
+<main id="layout">
+  <div id="viewport"><canvas id="canvas"></canvas>
+    <button id="kid-back" hidden>⬅ Pictures</button>
+    <div id="kind-toggle" hidden></div>
+    <div id="drop-hint">drop images (→ refs) or STL/3MF files (→ source) anywhere</div>
+    <div id="toast"></div>
+    <div id="setup-banner" hidden>
+      <span id="setup-banner-text"></span>
+      <button id="setup-banner-close" title="Hide until something changes">✕</button>
+    </div>
+    <div id="view-banner" hidden>
+      <span id="view-banner-label"></span>
+      <button id="view-banner-back">⬅ back to live model</button>
+    </div>
+    <div id="build-banner" hidden>
+      <span class="spin">🤖</span> <span id="build-banner-text">Building your 3D…</span>
+      <button id="build-cancel" title="Stop the build">✕</button>
+    </div>
+    <div id="legend">drag&thinsp;=&thinsp;orbit &nbsp;·&nbsp; shift-drag / right-drag / arrows&thinsp;=&thinsp;pan &nbsp;·&nbsp; scroll&thinsp;=&thinsp;zoom &nbsp;·&nbsp; double-click&thinsp;=&thinsp;re-center</div>
+    <div id="legend-kid">🖱️ drag to spin it · pick a color, tap a part to paint it!</div>
+    <button id="kid-print-btn" hidden>🖨️ Send to 3D printer!</button>
+  </div>
+  <div id="ref-pane" hidden>
+    <img id="ref-viewer" alt="reference">
+    <button id="ref-close" title="Close the picture">✕</button>
+    <button id="ref-archive" title="Archive this picture (builds are kept)" hidden>🗂</button>
+    <div id="ref-builds"></div>
+    <button id="ref-coin">🪙 Make my coin!</button>
+    <button id="ref-make3d">🤖 Make me 3D</button>
+  </div>
+</main>
+
+<aside id="sidebar">
+  <section id="creations" hidden>
+    <h3>my stuff <span class="hint">(tap to visit)</span></h3>
+    <div id="creations-strip"></div>
+  </section>
+  <section id="stats">
+    <h3>model</h3>
+    <div id="stats-body">no model</div>
+  </section>
+  <section id="files">
+    <h3>3d files <span class="hint">(click to view)</span></h3>
+    <div id="files-list">none yet</div>
+  </section>
+  <section id="refs">
+    <h3>picture library <span class="hint">(tap one → make it 3D · drag images here to add)</span></h3>
+    <div id="refs-strip"></div>
+  </section>
+</aside>
+
+<!-- ✨ wizard: ask → draw → pick -->
+<div id="wizard" hidden>
+  <div id="wizard-card">
+    <button id="wizard-close">✕</button>
+    <div id="wiz-ask">
+      <h2>What do you want to make?</h2>
+      <input id="wiz-input" placeholder="a friendly dragon…" autocomplete="off">
+      <div class="wiz-row">
+        <!-- shown only where the browser can recognise speech -->
+        <button id="wiz-mic" class="big-btn" title="Say what you want to make" hidden>🎤 <span id="wiz-mic-label">Tell me!</span></button>
+        <button id="wiz-go" class="big-btn">🎨 Draw it!</button>
+      </div>
+      <p id="wiz-msg" role="status" hidden></p>
+      <div class="wiz-row" id="wiz-provider-row">
+        <span class="wiz-prov-k">pictures by</span>
+        <label class="chk"><input type="radio" name="prov" value="auto" checked> <span id="prov-auto-label">auto</span></label>
+        <label class="chk"><input type="radio" name="prov" value="claude"> Claude (Opus)</label>
+        <label class="chk"><input type="radio" name="prov" value="comfyui"> ComfyUI (local)</label>
+        <label class="chk"><input type="radio" name="prov" value="nano"> Nano Banana</label>
+      </div>
+    </div>
+    <div id="wiz-busy" hidden>
+      <div id="wiz-busy-emoji" class="spin">🎨</div>
+      <h2 id="wiz-busy-text">Drawing your pictures…</h2>
+      <p id="wiz-busy-time" class="wiz-sub">0 s</p>
+    </div>
+    <div id="wiz-pick" hidden>
+      <h2 id="wiz-pick-title">Pick your favorite!</h2>
+      <div id="wiz-grid"></div>
+      <div class="wiz-row">
+        <button id="wiz-coin" class="big-btn" disabled>🪙 Make my coin!</button>
+        <button id="wiz-make3d" disabled>🤖 Make me 3D</button>
+        <button id="wiz-more">🎨 More pictures</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- 🎉 after "send to printer" -->
+<div id="helper-overlay" hidden>
+  <div id="helper-card">
+    <div class="party">🎉</div>
+    <h2>Sent to the 3D printer!</h2>
+    <p id="helper-text">Go get a grown-up to help you from here.</p>
+    <button id="helper-ok" class="big-btn">OK!</button>
+  </div>
+</div>
+
+<script type="module" src="/static/app.js"></script>
+</body>
+</html>

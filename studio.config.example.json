@@ -1,0 +1,33 @@
+{
+  "image_backend": "claude",
+  "options": 4,
+  "projects_dir": "",
+  "claude": {
+    "bin": "",
+    "draw_model": "claude-opus-5-5",
+    "build_model": "claude-opus-5-5",
+    "build_timeout_min": 30
+  },
+  "comfyui": {
+    "url": "",
+    "workspace": "",
+    "unet": "z_image_turbo_bf16.safetensors",
+    "clip": "qwen_3_4b.safetensors",
+    "vae": "z_image_ae.safetensors",
+    "steps": 8
+  },
+  "nano": {
+    "model": "gemini-2.5-flash-image",
+    "key_file": "~/.config/3d-print-studio/gemini_key"
+  },
+  "printer": {
+    "name": "Creality K2",
+    "bed_mm": [260, 260, 260],
+    "margin_mm": 5,
+    "slicer": "Creality Print"
+  },
+  "kid": {
+    "grown_up": "a grown-up",
+    "ages": "5 to 9"
+  }
+}

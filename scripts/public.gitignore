@@ -1,0 +1,62 @@
+# 3D Print Studio — what never goes into git.
+# (scripts/export_public.sh installs this file as the public repo's .gitignore.)
+
+# --- Python / OS noise ---------------------------------------------------------------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.DS_Store
+Thumbs.db
+desktop.ini
+*~
+*.swp
+
+# --- environments (install.sh makes .venv; scripts/setup_comfyui.sh makes .venv-comfy) ---
+.venv/
+.venv-*/
+venv/
+node_modules/
+
+# --- this machine's settings and private notes ----------------------------------------
+# studio.config.json is written by install.sh / scripts/configure.py; the tracked
+# template is studio.config.example.json. .tmp is config.save()'s atomic write.
+studio.config.json
+studio.config.json.tmp
+studio.config.json.broken-*
+CLAUDE.local.md
+.private-terms.txt
+printers/*/log.md
+.claude/settings.local.json
+.claude/worktrees/
+.worktrees/
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# --- your creations -------------------------------------------------------------------
+# The studio's data folder. examples/ seeds it on first start; everything you make
+# stays on your machine. Point projects_dir in studio.config.json elsewhere if you like.
+/projects/*
+!/projects/README.md
+
+# --- big media and model weights (ComfyUI models live in its own workspace) ------------
+*.safetensors
+*.gguf
+*.ckpt
+*.pt
+*.pth
+*.bin
+*.onnx
+*.mp4
+*.mov
+*.MOV
+*.m4a
+*.mp3
+*.wav
+*.psd
+*.zip

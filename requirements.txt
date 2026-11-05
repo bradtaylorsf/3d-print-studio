@@ -1,0 +1,13 @@
+# The studio's Python toolchain, installed into .venv by install.sh.
+# The server itself is stdlib-only; these serve design.py scripts, mesh stats,
+# the coin tracer, turning Claude's SVG drawings into PNGs, and the skills.
+trimesh
+manifold3d
+numpy
+scipy
+shapely
+matplotlib
+pillow
+opencv-python-headless
+scikit-image
+resvg_py

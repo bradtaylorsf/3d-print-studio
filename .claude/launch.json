@@ -1,0 +1,17 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "studio",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["start.sh", "--no-browser"],
+      "port": 8765
+    },
+    {
+      "name": "studio-8766",
+      "runtimeExecutable": "bash",
+      "runtimeArgs": ["start.sh", "--no-browser", "--port", "8766"],
+      "port": 8766
+    }
+  ]
+}
