@@ -305,6 +305,13 @@ projects folder and pokes every core endpoint, spending nothing) and
 Good first contributions: profiles for more printers (`printer-setup` output), new
 image → model strategies, Windows slicer-button support, a Web Worker STL parser.
 
+## History
+
+Started on 2026-08-02. The August commits are in this repo's history as redacted copies of the
+code commits, keeping their original dates. Later work was not committed separately: it
+arrives in the 2026-11-05 release commit, and [CHANGELOG.md](CHANGELOG.md) summarizes what
+changed in the studio, skills and scripts.
+
 ## License & credits
 
 [MIT](LICENSE). An independent hobby project — not an official product of, or endorsed by,

@@ -29,8 +29,8 @@ REPO="$(cd "$(dirname "$0")/.." && pwd -P)"
 PUBLIC_REPO="bradtaylorsf/3d-print-studio"
 
 # What ships. Top-level files one by one; whole trees minus junk/private names (skip_rel).
-TOP_FILES="README.md SETUP.md AGENTS.md CLAUDE.md LICENSE install.sh start.sh Studio.command
-requirements.txt studio.config.example.json .claude/launch.json"
+TOP_FILES="README.md CHANGELOG.md SETUP.md AGENTS.md CLAUDE.md LICENSE install.sh start.sh
+Studio.command requirements.txt studio.config.example.json .claude/launch.json"
 TREES="scripts studio skills .claude/skills printers examples"
 # --commit refuses without these: a release with no LICENSE or no installer isn't one.
 ESSENTIAL="README.md SETUP.md AGENTS.md CLAUDE.md LICENSE install.sh start.sh requirements.txt
