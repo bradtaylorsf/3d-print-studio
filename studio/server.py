@@ -103,12 +103,12 @@ PALETTE = ["#4a90d9", "#e2703a", "#4caf7d", "#b06ab3", "#d9a44a", "#5bc0be", "#c
 _info_cache = {}          # path -> (mtime, dict)
 _info_lock = threading.Lock()
 
-SAFE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._ -]*$")
+SAFE_NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9._ -]*")   # used with fullmatch: `$` would allow a trailing newline
 
 
 def safe_name(name):
     """A single path component: no traversal, no hidden files, sane charset."""
-    return bool(name) and SAFE_NAME.match(name) and ".." not in name
+    return bool(name) and SAFE_NAME.fullmatch(name) and ".." not in name
 
 
 # Any web page the user visits can send a "simple" POST to localhost (a
