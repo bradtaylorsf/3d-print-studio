@@ -205,7 +205,9 @@ def print_human(r):
     if cl["found"]:
         out.append(f"{mark(r['ready']['make3d'])} make 3D    Claude Code at {cl['path']} ({cl['build_model']})")
         bg = r["build_guard"]
-        if bg["sandbox"] and not bg["sandbox_available"]:
+        if bg.get("cli_ok") is False:
+            out.append(f"{BAD} builds     this Claude Code is too old to run a guarded build — claude update")
+        elif bg["sandbox"] and not bg["sandbox_available"]:
             out.append(f"{BAD} builds     claude.build_sandbox is on, but the OS sandbox can't start here")
         elif bg["sandbox"]:
             out.append(f"{OK} builds     guarded and sandboxed: a build writes only in its own project "
@@ -213,8 +215,8 @@ def print_human(r):
         else:
             why = ("turn it on: scripts/configure.py set claude.build_sandbox on" if bg["sandbox_available"]
                    else "not available here")
-            out.append(f"{OK} builds     guarded: a build's tools write only in its own project folder, "
-                       "no shell, no web")
+            out.append(f"{OK} builds     guarded: a build writes only in its own project folder, "
+                       "runs only the repo's Python, no web")
             out.append(f"   {''.ljust(10)} OS sandbox off, so the Python a build runs is not confined ({why})")
     else:
         out.append(f"{BAD} make 3D    the Claude Code CLI isn't installed")

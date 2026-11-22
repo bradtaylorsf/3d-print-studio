@@ -502,6 +502,23 @@ def claude_login_check(cfg, timeout=90):
     return False, (out.strip().splitlines() or [f"exit {r.returncode}"])[-1][:200]
 
 
+def claude_guard_check(cfg, timeout=20):
+    """Does this CLI know the permission mode a guarded Make me 3D build
+    starts in? An older Claude Code rejects the flag and the build dies at
+    once. Reads `claude --help`: no login, no tokens. Returns (ok, detail)."""
+    binpath = claude_bin(cfg)
+    if not binpath:
+        return False, "claude CLI not found"
+    try:
+        r = subprocess.run([binpath, "--help"], capture_output=True, text=True,
+                           timeout=timeout, stdin=subprocess.DEVNULL)
+    except (subprocess.TimeoutExpired, OSError) as e:
+        return None, f"could not ask {binpath} ({e})"
+    if "dontAsk" in (r.stdout or "") + (r.stderr or ""):
+        return True, "supports guarded builds"
+    return False, "too old for guarded builds (no dontAsk permission mode)"
+
+
 # --------------------------------------------------------------- checks --
 def _display_path(path):
     """Repo-relative inside the repo; a STUDIO_CONFIG elsewhere stays absolute
@@ -525,8 +542,10 @@ def checks(cfg, deep=False):
             for m in ("trimesh", "manifold3d", "numpy", "shapely", "cv2", "skimage", "resvg_py")}
 
     login, login_detail = (None, "not checked (doctor --deep checks it)")
+    guard_ok = None
     if deep:
         login, login_detail = claude_login_check(cfg)
+        guard_ok, guard_detail = claude_guard_check(cfg) if binpath else (None, "")
 
     problems = []
     if cfg.get("_error"):
@@ -541,6 +560,9 @@ def checks(cfg, deep=False):
     elif login is False:
         problems.append({"what": f"Claude Code CLI: {login_detail}",
                          "fix": "run `claude` in a terminal, then /login"})
+    if guard_ok is False and binpath:
+        problems.append({"what": f"Claude Code CLI is {guard_detail} — Make me 3D builds won't start",
+                         "fix": "update it: claude update"})
     if backend == "comfyui":
         if not url:
             where = get_path(cfg, "comfyui.url") or "ports " + "/".join(map(str, COMFY_PROBE_PORTS))
@@ -588,7 +610,7 @@ def checks(cfg, deep=False):
         "options": int(cfg.get("options") or 4),
         "ready": {
             "pictures": pictures_ready,
-            "make3d": bool(binpath) and login is not False,
+            "make3d": bool(binpath) and login is not False and guard_ok is not False,
             "coins": deps["cv2"] and deps["trimesh"] and deps["shapely"],
             "slicer": slicer,
         },
@@ -598,7 +620,7 @@ def checks(cfg, deep=False):
                    "login": login, "login_detail": login_detail},
         # how an unattended Make me 3D build is fenced in (studio/build_guard.py)
         "build_guard": {"sandbox_mode": sandbox_mode, "sandbox": build_sandbox(cfg),
-                        "sandbox_available": sandbox_available()},
+                        "sandbox_available": sandbox_available(), "cli_ok": guard_ok},
         "comfyui": {"url": url, "configured_url": get_path(cfg, "comfyui.url") or None,
                     "reachable": bool(url), "missing_models": missing},
         "nano": {"key": key, "model": get_path(cfg, "nano.model")},

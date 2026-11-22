@@ -57,6 +57,12 @@ class Files(GuardCase):
             self.refused("Write", file_path=path, content="x")
             self.refused("Edit", file_path=path)
 
+    def test_no_agent_instructions_left_behind(self):
+        for name in ("CLAUDE.md", "claude.local.md", "AGENTS.md", ".mcp.json",
+                     os.path.join(".claude", "settings.json"), os.path.join("refs", ".claude", "x.md")):
+            self.refused("Write", file_path=os.path.join(self.project, name), content="x")
+        self.ok("Write", file_path=os.path.join(self.project, "notes.md"), content="x")
+
     def test_a_symlink_out_of_the_project_is_out(self):
         os.symlink(self.other, os.path.join(self.project, "link"))
         self.refused("Write", file_path=os.path.join(self.project, "link", "model.stl"))
@@ -138,7 +144,7 @@ class Launch(GuardCase):
     def test_flags_replace_bypass(self):
         args = build_guard.claude_args(self.repo, self.project, self.root, self.python)
         self.assertNotIn("bypassPermissions", " ".join(args))
-        self.assertEqual(args[:4], ["--permission-mode", "dontAsk", "--permission-prompts", "none"])
+        self.assertEqual(args[:3], ["--permission-mode", "dontAsk", "--settings"])
         settings = json.loads(args[args.index("--settings") + 1])
         self.assertEqual(settings["permissions"]["allow"],
                          [f"Bash({self.python} *)", f"Edit(/{self.project}/**)"])

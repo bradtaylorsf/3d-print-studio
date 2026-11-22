@@ -7,17 +7,17 @@ chose (or a grown-up imported from a URL). It used to run with
 This file is what replaced that. It has two halves:
 
 1. `claude_args()` — the launch flags studio/server.py appends to `claude -p`:
-   permission mode `dontAsk` with nobody to answer prompts (anything not
-   allowed is refused, never asked), two allow rules (the repo's own Python,
-   edits inside the build's project folder), web tools denied, and this file
-   registered as a PreToolUse hook.
+   permission mode `dontAsk` (anything not allowed is refused, never asked),
+   two allow rules (the repo's own Python, edits inside the build's project
+   folder), web tools denied, and this file registered as a PreToolUse hook.
 
 2. The hook itself (`python build_guard.py --repo … --project …`, JSON on
    stdin, one call per tool use). It refuses anything outside this policy,
    whatever the user's own Claude settings allow:
 
      read    this repo and the projects folder — not .git, not key files
-     write   the build's own project folder, nothing else
+     write   the build's own project folder, nothing else — and no agent
+             instructions or settings there (CLAUDE.md, .claude/, .mcp.json)
      Bash    one command per call: the repo's Python and its arguments.
              No other program, no pipes, &&, redirects, cd or $(...)
      other   no web, no subagents, no MCP, no tool this file doesn't know
@@ -50,6 +50,9 @@ PLAIN_TOOLS = {"Skill", "ToolSearch", "TodoWrite", "TaskCreate", "TaskUpdate", "
                "TaskList", "TaskOutput", "TaskStop", "BashOutput", "KillShell", "KillBash"}
 DENIED_TOOLS = ("WebFetch", "WebSearch")      # also deny rules in the launch settings
 
+# files a later agent session would load as instructions or settings: a build
+# has no reason to leave one behind in a project folder
+AGENT_FILES = {"claude.md", "claude.local.md", "agents.md", ".mcp.json"}
 GLOB_CHARS = set("*?[{")
 STDERR_TO_STDOUT = re.compile(r"\s+2>&1\s*$")
 
@@ -94,9 +97,13 @@ class Policy:
     def check_write(self, path, cwd):
         if not path:
             raise Refused("no file path given")
-        if not inside(real(path, cwd), self.project):
+        target = real(path, cwd)
+        if not inside(target, self.project):
             raise Refused(f"{path} is outside this build's project folder. A Make me 3D build "
                           f"writes only inside {self.project}.")
+        parts = os.path.relpath(target, self.project).lower().split(os.sep)
+        if parts[-1] in AGENT_FILES or any(p in (".claude", ".git") for p in parts):
+            raise Refused(f"{path} is an agent instruction or settings file; a build doesn't write those.")
 
     # ------------------------------------------------------------- Bash --
     def check_bash(self, command):
@@ -251,7 +258,7 @@ def sandbox_settings(repo, project, projects_root):
 
 def claude_args(repo, project, projects_root, python, sandbox=False):
     """What `claude -p <prompt>` gets instead of --permission-mode bypassPermissions."""
-    hook = [sys.executable, os.path.abspath(__file__), "--repo", repo, "--project", project,
+    hook = [sys.executable or python, os.path.abspath(__file__), "--repo", repo, "--project", project,
             "--projects-root", projects_root, "--python", python]
     settings = {
         "permissions": {
@@ -263,9 +270,8 @@ def claude_args(repo, project, projects_root, python, sandbox=False):
     }
     if sandbox:
         settings["sandbox"] = sandbox_settings(repo, project, projects_root)
-    # dontAsk: whatever no rule allows is refused. "none": and nobody is asked.
-    return ["--permission-mode", "dontAsk", "--permission-prompts", "none",
-            "--settings", json.dumps(settings)]
+    # dontAsk: whatever no rule allows is refused, and nothing ever prompts
+    return ["--permission-mode", "dontAsk", "--settings", json.dumps(settings)]
 
 
 # ------------------------------------------------------------------ hook --

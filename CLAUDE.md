@@ -16,7 +16,7 @@
     skills and the repo are deliberately **not** loaded. Claude replies with an SVG; the studio
     sanitizes it, rasterizes it with resvg into `refs/`, and keeps the SVG in `vectors/`.
   - *Make me 3D*: model `claude.build_model`, cwd = the repo,
-    `--permission-mode dontAsk --permission-prompts none --strict-mcp-config`, killed after
+    `--permission-mode dontAsk --strict-mcp-config`, killed after
     `claude.build_timeout_min` minutes. Never `bypassPermissions`: `studio/build_guard.py`
     supplies the allow rules and is the PreToolUse hook that checks every tool call (writes
     only in the build's project folder, Bash only the repo's Python, no web), and
