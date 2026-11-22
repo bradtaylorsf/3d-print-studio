@@ -6,6 +6,22 @@ late August up to the first public release on 2026-11-05 was never committed sep
 this file summarizes it. It covers the shared studio, skills and scripts, not individual
 print projects.
 
+## Unreleased
+
+**Safety**
+
+- **Make me 3D no longer runs Claude Code with permissions bypassed.** A build now starts in
+  `dontAsk` mode with nobody to answer prompts, so anything not allowed is refused, and
+  `studio/build_guard.py` checks every tool call as a PreToolUse hook: writes only inside the
+  build's own project folder, reads only the repo and the projects folder, Bash only the
+  repo's own Python, no web tools. A user's own Claude Code allow rules can't loosen it.
+  Tests: `scripts/test_build_guard.py`.
+- New setting `claude.build_sandbox` (`off` / `on` / `auto`, default `off`): run a build's
+  Python inside Claude Code's OS sandbox, so the script itself can write only in the project
+  folder and has no network. The doctor says which of the two a build gets.
+- The build prompt and `AGENTS.md` tell the build agent how to work inside the guard, and the
+  studio creates `previews/` before a build starts.
+
 ## 2026-11-05 · First public release
 
 Commit `59d35df`.

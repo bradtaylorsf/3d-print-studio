@@ -157,7 +157,9 @@ recognition. What agents need to know:
 - `POST /api/projects/<n>/make3d` `{"image": "<refs file>"}` — spawns the user's own
   `claude -p` (model `claude.build_model`, killed after `claude.build_timeout_min`) in this
   repo; it builds `design.py` → `model.stl` **and parts/*.stl split by colour region +
-  parts/parts.json**. If YOU are that spawned instance: export a rough model early (a
+  parts/parts.json**. The build is fenced in by `studio/build_guard.py`: it writes only in
+  its own project folder and its Bash runs only the repo's Python (see AGENTS.md). If YOU are
+  that spawned instance: export a rough model early (a
   child is watching the viewer), then refine; the split into paintable parts is not
   optional — a merged mesh cannot be painted in the studio; size and sturdiness follow
   the printer envelope and `kid.ages` you were given. When the chosen picture has a

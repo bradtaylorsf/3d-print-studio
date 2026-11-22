@@ -141,9 +141,18 @@ directory, not in the repo.
 
 ### If you are a headless "Make me 3D" build
 
-The studio started you with no human watching and with permission prompts off. Stay inside
-the project folder you were given: write only there, use `.venv/bin/python`, don't install
-software, and don't edit `studio/`, `skills/`, `scripts/`, the config, or other projects.
+The studio started you with no human watching, behind a guard (`studio/build_guard.py`)
+that checks every tool call. Nobody can approve anything, so a refused call is final: do it
+another way, don't retry it.
+
+- **Write only inside the project folder you were given.** `studio/`, `skills/`, `scripts/`,
+  the config and every other project are read-only to you.
+- **Bash runs one program: the repo's Python**, called by the full path in your prompt, one
+  command per call (a trailing `2>&1` is fine). No `cd`, pipes, `&&`, redirects, `ls`, `cat`,
+  `grep` or `mkdir`. Read files with the Read tool; list a folder or check a mesh with
+  `<python> -c '...'`.
+- **No web, no installs.** Everything you need is in `.venv` and `skills/`.
+
 Export something printable early and improve it — a build that is killed at the timeout with
 no `model.stl` or `parts/*.stl` on disk gave the child nothing.
 

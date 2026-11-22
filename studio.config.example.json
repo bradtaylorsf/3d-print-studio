@@ -6,7 +6,8 @@
     "bin": "",
     "draw_model": "claude-opus-5-5",
     "build_model": "claude-opus-5-5",
-    "build_timeout_min": 30
+    "build_timeout_min": 30,
+    "build_sandbox": "off"
   },
   "comfyui": {
     "url": "",

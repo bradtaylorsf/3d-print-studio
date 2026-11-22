@@ -208,6 +208,7 @@ doctor and the setup banner say which key it was.
 | `claude.draw_model` | `"claude-opus-5-5"` | Model that draws the pictures |
 | `claude.build_model` | `"claude-opus-5-5"` | Model that builds Make me 3D toys |
 | `claude.build_timeout_min` | `30` | A build still running after this is stopped (Opus builds take ~5–20 min) |
+| `claude.build_sandbox` | `"off"` | `on` runs a build's Python inside Claude Code's OS sandbox: writes only in the project folder, no network. `auto` = on where the sandbox can start. See [Safety & privacy](#safety--privacy) |
 | `comfyui.url` | `""` | ComfyUI address; empty = probe `127.0.0.1` ports 8188, 8000, 8189 |
 | `comfyui.workspace` | `""` | The ComfyUI folder, set by `setup_comfyui.sh`; when that script installed ComfyUI, `start.sh` launches it for you |
 | `comfyui.unet` | `"z_image_turbo_bf16.safetensors"` | Z-Image Turbo diffusion model |
@@ -239,20 +240,39 @@ The launcher, installer and server read a few more: `PORT` and `STUDIO_NO_BROWSE
 - **Local only.** The server listens on `127.0.0.1` — other devices on your network can't
   reach it. It also answers only requests addressed to `localhost` / `127.0.0.1` / `[::1]` /
   `*.localhost`, and refuses POSTs from any other web page, including other local dev servers
-  (CSRF and DNS-rebinding protection: Make me 3D runs an agent with permission prompts off).
+  (CSRF and DNS-rebinding protection: Make me 3D starts an agent with nobody watching it).
   Behind a tunnel or port-forwarder you set up yourself, allow its hostname with
   `STUDIO_ALLOWED_HOSTS=name[,name]`. The studio has no accounts, analytics or telemetry.
   Projects stay in your projects folder, which this repo gitignores.
 - **What leaves your computer:** a picture request goes only to the backend you chose
   (Anthropic through your Claude Code, Google for Nano Banana, nowhere for ComfyUI). Make me
   3D sends the chosen picture and the build instructions through your Claude Code; the build
-  agent keeps Claude Code's built-in tools, so it may also search or fetch the web. Coins are
-  traced entirely on your machine. Importing from a 🔗 url fetches that url.
-- **Make me 3D runs an agent with permission prompts off.** Each build is a headless
-  `claude -p` session with `--permission-mode bypassPermissions`, working in this repo as
-  your user. Its instructions keep it inside the project folder, but that's an instruction,
-  not a sandbox. Run the studio on a computer and account you're comfortable with; every
-  build's log is in `<project>/.make3d.log`, and builds stop after `claude.build_timeout_min`.
+  agent has no web search or fetch. Coins are traced entirely on your machine. Importing from a 🔗 url fetches that url.
+- **Make me 3D runs an agent with nobody watching, so it is fenced in.** Each build is a
+  headless `claude -p` session working in this repo as your user. It does *not* run with
+  permissions bypassed: it runs in `dontAsk` mode, where anything not allowed is refused
+  instead of asked, and [`studio/build_guard.py`](studio/build_guard.py) checks every tool call
+  before it happens:
+  - it **writes** only inside the one project folder it is building — not the studio's code,
+    not your other toys;
+  - it **reads** only this repo and your projects folder (never `.git` or key files);
+  - its shell runs **one program**, the repo's own `.venv/bin/python` — no `rm`, `curl`,
+    `git` or `pip`, no pipes or redirects;
+  - no web search or fetch, no MCP servers, no subagents.
+
+  Your own Claude Code settings can't loosen this: a broad allow rule in
+  `~/.claude/settings.json` does not apply to a build.
+- **What the fence doesn't cover: the Python itself.** The `design.py` a build writes and
+  runs is ordinary Python, running as you. The guard decides *which program* runs, not what
+  that program does, so a script could still open other files or use the network. To close
+  that too, turn on the OS sandbox:
+  `.venv/bin/python scripts/configure.py set claude.build_sandbox on`. A build's Python then
+  runs inside Claude Code's own sandbox (Seatbelt on macOS, built in; bubblewrap and socat on
+  Linux), which lets it write only in the project folder and gives it no network. With `on`,
+  a build refuses to start where the sandbox can't, rather than run without it; `auto` uses
+  it where it can start. It is `off` by default while it is new. Either way: run the studio
+  on a computer and account you're comfortable with; every build's log is in
+  `<project>/.make3d.log`, and builds stop after `claude.build_timeout_min`.
 - **Filtering kids' requests is the drawing model's job.** The Claude prompt tells it to draw
   a friendly, wholesome version of anything that isn't right for young children; Nano Banana
   has Google's safety filters; **a local ComfyUI has no filter** — it draws what the words
@@ -283,7 +303,7 @@ interviews you, researches the machine, writes `printers/<slug>/profile.md` (slu
 |---|---|
 | `install.sh`, `start.sh`, `Studio.command` | Install, start, and the Finder double-click launcher |
 | `studio/` | The studio: a zero-dependency Python server, the three.js viewer (vendored — no CDN, no build step), the picture backends (`imagegen.py`), the coin tracer (`tools/`), and `config.py` |
-| `scripts/` | `doctor.py`, `configure.py`, `setup_comfyui.sh`, `smoke_test.py`, `check_privacy.py` |
+| `scripts/` | `doctor.py`, `configure.py`, `setup_comfyui.sh`, `smoke_test.py`, `test_build_guard.py`, `check_privacy.py` |
 | `skills/` | The agent skills (plain markdown); symlinked into `.claude/skills/` for Claude Code |
 | `printers/` | One knowledge base per printer |
 | `examples/` | Starter projects copied into an empty projects folder on first run |
