@@ -12,8 +12,9 @@ On first start an empty projects directory is seeded from examples/.
 
 Loopback only: requests must carry a localhost Host header, and a browser
 POST must come from the studio's own page, same host and port (any website,
-or another local server, can otherwise POST here, and "Make me 3D" runs
-Claude Code with bypassPermissions). A port-forwarder's own hostname can be
+or another local server, can otherwise POST here, and "Make me 3D" starts an
+unattended Claude Code build — fenced in by studio/build_guard.py, but still
+an agent running on this machine). A port-forwarder's own hostname can be
 allowed with STUDIO_ALLOWED_HOSTS=name[,name].
 
 Endpoints:
@@ -62,6 +63,7 @@ import filecmp
 import json
 import os
 import re
+import shlex
 import shutil
 import sys
 import threading
@@ -75,6 +77,7 @@ TOOLS = os.path.join(STUDIO, "tools")
 EXAMPLES = os.path.join(REPO, "examples")
 
 sys.path.insert(0, STUDIO)
+import build_guard                                           # noqa: E402
 import config                                                # noqa: E402
 import imagegen                                              # noqa: E402
 from imagegen import unique_path                             # noqa: E402
@@ -113,8 +116,8 @@ def safe_name(name):
 
 # Any web page the user visits can send a "simple" POST to localhost (a
 # text/plain or bare body needs no CORS preflight), and a DNS-rebinding page
-# can read the answers too. This server uploads pictures and then spawns
-# Claude Code with bypassPermissions on them, so: loopback Host names only,
+# can read the answers too. This server uploads pictures and then spawns an
+# unattended Claude Code build on them, so: loopback Host names only,
 # and a browser POST must come from the studio's own origin. curl, the smoke
 # test and agents send no Origin and are unaffected.
 LOOPBACK_HOSTS = {"localhost", "127.0.0.1", "::1"}
@@ -393,6 +396,11 @@ orientation, design-studio for the design.py conventions and hot-reload contract
 k2-supports to design AWAY from needing supports, k2-slicing for the print profile you
 state at the end. The k2-* skills ship tuned for the Creality K2; where this printer differs, the printer facts above win.
 
+This build runs unattended behind a guard (studio/build_guard.py). Plan around it; a refused call is final, so do it another way instead of retrying:
+- Write and edit files only inside {pdir}. The rest of the repo is read-only to you.
+- Bash runs exactly one program, {python}, called by that full path, one command per call (a trailing 2>&1 is fine). No cd, pipes, &&, redirects, ls, cat, sed, grep or mkdir. Read files with the Read tool; to list a folder or check a mesh quickly use {python} -c '...'.
+- No web access and no installs. {pdir}/previews/ already exists for your renders.
+
 Requirements:
 - Write {pdir}/design.py (parametric, trimesh/shapely, dimensions as named constants) and run it with {python} to produce {pdir}/model.stl.
 - EXPORT EARLY, THEN REFINE. A child is watching the live viewer: produce a rough blocked-out model.stl within your first few actions, then iterate and re-export as you improve it. Never work silently for many minutes with nothing on disk.
@@ -423,7 +431,7 @@ def make3d_prompt(cfg, pdir, image, svg=None):
         env=_fmt_mm(env), bed=_fmt_mm(config.bed_mm(cfg)),
         size_lo=f"{lo:g}", size_hi=f"{hi:g}",
         ages=config.get_path(cfg, "kid.ages") or "5 to 9",
-        python=tool_python())
+        python=shlex.quote(tool_python()))
 
 
 def start_make3d(pname, pdir, image, cfg, svg=None):
@@ -444,12 +452,21 @@ def start_make3d(pname, pdir, image, cfg, svg=None):
         log_path = os.path.join(pdir, ".make3d.log")
         log = open(log_path, "w")
         prompt = make3d_prompt(cfg, pdir, image, svg)
+        root = projects_root(cfg)
+        # the build can't mkdir (its Bash runs only the repo's Python), and a
+        # render saved into a missing previews/ just fails
+        os.makedirs(os.path.join(pdir, "previews"), exist_ok=True)
         # --strict-mcp-config with no --mcp-config: no MCP servers at all.
         # A build job needs none, they slow startup, and a hung MCP
         # handshake stalled a build for 27 minutes once.
-        cmd = [binpath, "-p", prompt, "--permission-mode", "bypassPermissions",
-               "--strict-mcp-config", "--model", model]
-        root = projects_root(cfg)
+        cmd = [binpath, "-p", prompt, "--strict-mcp-config", "--model", model]
+        # nobody is watching this session: build_guard decides what it may do
+        # (this used to be --permission-mode bypassPermissions)
+        sandbox = config.build_sandbox(cfg)
+        cmd += build_guard.claude_args(REPO, pdir, root, tool_python(), sandbox=sandbox)
+        log.write("[studio] guarded build: tools write only inside this project folder, Bash runs "
+                  "only the repo's Python, no web; OS sandbox " + ("on" if sandbox else "off") + "\n")
+        log.flush()                          # before the build's own output, which shares the file
         try:
             inside = os.path.commonpath([os.path.abspath(root), REPO]) == REPO
         except ValueError:

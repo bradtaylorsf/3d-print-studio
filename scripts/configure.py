@@ -91,6 +91,8 @@ def check(key, value):
         return f"'{key}' wants a number of 0 or more (default {json.dumps(default)}), got {json.dumps(value)}"
     if key == "image_backend" and str(value).lower() not in BACKEND_VALUES:
         return f"image_backend must be one of {', '.join(BACKEND_VALUES)}"
+    if key == "claude.build_sandbox" and str(value).lower() not in config.SANDBOX_MODES:
+        return f"claude.build_sandbox must be one of {', '.join(config.SANDBOX_MODES)}"
     if key == "printer.bed_mm" and (len(value) != 3 or not all(
             _kind(v) == "number" and v > 0 for v in value)):
         return "printer.bed_mm wants three positive numbers, e.g. [260,260,260]"

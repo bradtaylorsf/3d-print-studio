@@ -16,9 +16,14 @@
     skills and the repo are deliberately **not** loaded. Claude replies with an SVG; the studio
     sanitizes it, rasterizes it with resvg into `refs/`, and keeps the SVG in `vectors/`.
   - *Make me 3D*: model `claude.build_model`, cwd = the repo,
-    `--permission-mode bypassPermissions --strict-mcp-config`, killed after
-    `claude.build_timeout_min` minutes. This file, `AGENTS.md` and the skills **are** loaded.
-    The session log is `<project>/.make3d.log`.
+    `--permission-mode dontAsk --strict-mcp-config`, killed after
+    `claude.build_timeout_min` minutes. Never `bypassPermissions`: `studio/build_guard.py`
+    supplies the allow rules and is the PreToolUse hook that checks every tool call (writes
+    only in the build's project folder, Bash only the repo's Python, no web), and
+    `claude.build_sandbox` adds Claude Code's OS sandbox around that Python. This file,
+    `AGENTS.md` and the skills **are** loaded. The session log is `<project>/.make3d.log`.
+    Changing what a build may do means changing `build_guard.py` and
+    `scripts/test_build_guard.py` together.
 - **Headless needs a logged-in CLI.** Run `claude` once in a terminal and `/login`. A signed-in
   Claude desktop app is not enough: a build that dies instantly with "Not logged in" in
   `.make3d.log` means exactly this. `.venv/bin/python scripts/doctor.py --deep` proves it with

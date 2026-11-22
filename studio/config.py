@@ -50,6 +50,7 @@ DEFAULTS = {
         "draw_model": "claude-opus-5-5",    # draws the pictures when image_backend is "claude"
         "build_model": "claude-opus-5-5",   # builds the 3D model ("Make me 3D")
         "build_timeout_min": 30,            # Opus builds run 5–20 min; past this it is wedged
+        "build_sandbox": "off",             # "on" | "off" | "auto": Claude Code's OS sandbox for builds
     },
     "comfyui": {
         "url": "",                          # "" = probe 127.0.0.1 on COMFY_PROBE_PORTS
@@ -252,6 +253,27 @@ def envelope_mm(cfg):
     """The design envelope: the bed minus the margin on every axis."""
     m = float(get_path(cfg, "printer.margin_mm", 5) or 0)
     return [max(v - m, 1.0) for v in bed_mm(cfg)]
+
+
+SANDBOX_MODES = ("off", "on", "auto")
+
+
+def sandbox_available():
+    """Can Claude Code's command sandbox start here? Seatbelt ships with
+    macOS; Linux/WSL needs bubblewrap and socat; native Windows isn't wired up."""
+    if sys.platform == "darwin":
+        return os.path.exists("/usr/bin/sandbox-exec")
+    if sys.platform.startswith("linux"):
+        return bool(shutil.which("bwrap") and shutil.which("socat"))
+    return False
+
+
+def build_sandbox(cfg):
+    """Should a Make me 3D build run its Python inside the OS sandbox?
+    "on" means on — where the sandbox can't start, the build refuses to start
+    rather than run unsandboxed. "auto" turns it on only where it can start."""
+    mode = str(get_path(cfg, "claude.build_sandbox") or "off").strip().lower()
+    return mode == "on" or (mode == "auto" and sandbox_available())
 
 
 def claude_bin(cfg):
@@ -480,6 +502,23 @@ def claude_login_check(cfg, timeout=90):
     return False, (out.strip().splitlines() or [f"exit {r.returncode}"])[-1][:200]
 
 
+def claude_guard_check(cfg, timeout=20):
+    """Does this CLI know the permission mode a guarded Make me 3D build
+    starts in? An older Claude Code rejects the flag and the build dies at
+    once. Reads `claude --help`: no login, no tokens. Returns (ok, detail)."""
+    binpath = claude_bin(cfg)
+    if not binpath:
+        return False, "claude CLI not found"
+    try:
+        r = subprocess.run([binpath, "--help"], capture_output=True, text=True,
+                           timeout=timeout, stdin=subprocess.DEVNULL)
+    except (subprocess.TimeoutExpired, OSError) as e:
+        return None, f"could not ask {binpath} ({e})"
+    if "dontAsk" in (r.stdout or "") + (r.stderr or ""):
+        return True, "supports guarded builds"
+    return False, "too old for guarded builds (no dontAsk permission mode)"
+
+
 # --------------------------------------------------------------- checks --
 def _display_path(path):
     """Repo-relative inside the repo; a STUDIO_CONFIG elsewhere stays absolute
@@ -503,8 +542,10 @@ def checks(cfg, deep=False):
             for m in ("trimesh", "manifold3d", "numpy", "shapely", "cv2", "skimage", "resvg_py")}
 
     login, login_detail = (None, "not checked (doctor --deep checks it)")
+    guard_ok = None
     if deep:
         login, login_detail = claude_login_check(cfg)
+        guard_ok, guard_detail = claude_guard_check(cfg) if binpath else (None, "")
 
     problems = []
     if cfg.get("_error"):
@@ -519,6 +560,9 @@ def checks(cfg, deep=False):
     elif login is False:
         problems.append({"what": f"Claude Code CLI: {login_detail}",
                          "fix": "run `claude` in a terminal, then /login"})
+    if guard_ok is False and binpath:
+        problems.append({"what": f"Claude Code CLI is {guard_detail} — Make me 3D builds won't start",
+                         "fix": "update it: claude update"})
     if backend == "comfyui":
         if not url:
             where = get_path(cfg, "comfyui.url") or "ports " + "/".join(map(str, COMFY_PROBE_PORTS))
@@ -539,6 +583,16 @@ def checks(cfg, deep=False):
     if missing_deps:
         problems.append({"what": "Python packages missing: " + ", ".join(missing_deps),
                          "fix": "./install.sh (or .venv/bin/pip install -r requirements.txt)"})
+    sandbox_mode = str(get_path(cfg, "claude.build_sandbox") or "off").strip().lower()
+    if sandbox_mode not in SANDBOX_MODES:
+        problems.append({"what": f"claude.build_sandbox = {json.dumps(sandbox_mode)} is not one of "
+                                 + ", ".join(SANDBOX_MODES) + " (builds run without the OS sandbox)",
+                         "fix": "scripts/configure.py set claude.build_sandbox on   (or off, or auto)"})
+    elif sandbox_mode == "on" and not sandbox_available():
+        problems.append({"what": "claude.build_sandbox is on, but the sandbox can't start here "
+                                 "(Make me 3D builds will refuse to start)",
+                         "fix": "on Linux install bubblewrap and socat; otherwise: "
+                                "scripts/configure.py set claude.build_sandbox off"})
     if slicer is False:
         problems.append({"what": f"slicer '{get_path(cfg, 'printer.slicer')}' not found",
                          "fix": "install it, or set printer.slicer in studio.config.json"})
@@ -556,7 +610,7 @@ def checks(cfg, deep=False):
         "options": int(cfg.get("options") or 4),
         "ready": {
             "pictures": pictures_ready,
-            "make3d": bool(binpath) and login is not False,
+            "make3d": bool(binpath) and login is not False and guard_ok is not False,
             "coins": deps["cv2"] and deps["trimesh"] and deps["shapely"],
             "slicer": slicer,
         },
@@ -564,6 +618,9 @@ def checks(cfg, deep=False):
                    "draw_model": get_path(cfg, "claude.draw_model"),
                    "build_model": get_path(cfg, "claude.build_model"),
                    "login": login, "login_detail": login_detail},
+        # how an unattended Make me 3D build is fenced in (studio/build_guard.py)
+        "build_guard": {"sandbox_mode": sandbox_mode, "sandbox": build_sandbox(cfg),
+                        "sandbox_available": sandbox_available(), "cli_ok": guard_ok},
         "comfyui": {"url": url, "configured_url": get_path(cfg, "comfyui.url") or None,
                     "reachable": bool(url), "missing_models": missing},
         "nano": {"key": key, "model": get_path(cfg, "nano.model")},

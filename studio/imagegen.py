@@ -186,8 +186,8 @@ ET.register_namespace("", SVG_NS)
 ET.register_namespace("xlink", XLINK_NS)
 MAX_SVG = 2 * 1024 * 1024
 # anything that can run code, pull in another document, or rewrite an href
-# later — plus the non-drawing text elements: the saved SVG is read by a
-# bypassPermissions Make-me-3D build, and a <desc> is a free place for words
+# later — plus the non-drawing text elements: the saved SVG is read by an
+# unattended Make-me-3D build, and a <desc> is a free place for words
 # aimed at it rather than at the picture
 _BANNED = {"script", "foreignobject", "image", "iframe", "embed", "object", "audio",
            "video", "canvas", "set", "animate", "animatetransform", "animatemotion",
